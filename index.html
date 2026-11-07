@@ -53,6 +53,19 @@
           <a class="button button-primary" href="#account"><span data-site-content="hero.join">Join TFOC</span> <span aria-hidden="true">↘</span></a>
           <a class="button button-quiet" href="#games" data-site-content="hero.explore">Explore our focus</a>
         </div>
+        <section class="home-news" aria-label="Latest TFOC updates" aria-roledescription="carousel">
+          <div class="home-news-heading">
+            <span>THE LATEST</span>
+            <div class="home-news-controls">
+              <button type="button" id="home-news-previous" aria-label="Previous update">←</button>
+              <button type="button" id="home-news-pause" aria-label="Pause updates">Ⅱ</button>
+              <button type="button" id="home-news-next" aria-label="Next update">→</button>
+            </div>
+          </div>
+          <div class="home-news-viewport">
+            <div class="home-news-track" id="home-news-track" aria-live="off"></div>
+          </div>
+        </section>
       </div>
       <div class="hero-bottom">
         <span data-site-content="hero.footer">UNITED BY THE GAME</span>
@@ -81,7 +94,7 @@
             <h2>ONE TAG.<br><span>ONE TEAM.</span></h2>
           </div>
           <div class="clans-heading-copy">
-            <p>Browse registered clans approved by TFOC administrators. Rosters show a player’s username and game ID only.</p>
+            <p>Browse every clan approved by TFOC, including its logo, captain, full roster, player IDs, roles, and join dates. Contact details and device serials stay private.</p>
             <a class="button button-primary" href="#account">Register your clan <span aria-hidden="true">↗</span></a>
           </div>
         </div>
@@ -389,9 +402,9 @@
                     <small>2–8 letters or numbers.</small>
                   </label>
                   <label class="form-field form-field-full">
-                    <span>Square clan logo</span>
+                    <span>Clan logo</span>
                     <input name="logo" type="file" accept="image/png,image/jpeg" required>
-                    <small>PNG or JPEG, square, 64–1024 pixels, up to 512 KB.</small>
+                    <small>PNG or JPEG, any dimensions, up to 10 MB.</small>
                   </label>
                 </div>
                 <label class="clan-consent">
@@ -428,7 +441,7 @@
             <label class="form-field">
               <span>Tournament logo</span>
               <input name="logo" type="file" accept="image/png,image/jpeg" required>
-              <small>Square PNG or JPEG, 64–1024 pixels, up to 512 KB.</small>
+              <small>PNG or JPEG, any dimensions, up to 10 MB.</small>
             </label>
             <label class="form-field">
               <span>Organizers</span>
@@ -468,6 +481,37 @@
             <p>Review clan registrations, create the draw, and manage the match schedule and scores.</p>
           </div>
           <div class="tournament-admin-list" id="tournament-admin-list" aria-live="polite"></div>
+        </div>
+        <div class="admin-panel manual-clan-panel" id="manual-clan-panel" hidden>
+          <div class="admin-panel-heading">
+            <h3>Add a clan manually</h3>
+            <p>Create an approved clan directly and assign an existing player as its owner.</p>
+          </div>
+          <form id="manual-clan-form" class="admin-form">
+            <label class="form-field">
+              <span>Clan name</span>
+              <input name="name" type="text" minlength="3" maxlength="32" required>
+            </label>
+            <label class="form-field">
+              <span>Clan tag</span>
+              <input name="tag" type="text" minlength="2" maxlength="8" pattern="[A-Za-z0-9]{2,8}" required>
+              <small>2–8 letters or numbers.</small>
+            </label>
+            <label class="form-field">
+              <span>Clan owner account</span>
+              <select name="ownerId" id="manual-clan-owner" required></select>
+            </label>
+            <label class="form-field">
+              <span>Clan logo</span>
+              <input name="logo" type="file" accept="image/png,image/jpeg" required>
+              <small>PNG or JPEG, any dimensions, up to 10 MB.</small>
+            </label>
+            <label class="clan-consent">
+              <input name="publicRosterConsent" type="checkbox" required>
+              <span>I confirm that I have permission to publish the clan owner’s username and player ID in its public roster.</span>
+            </label>
+            <button class="button button-primary admin-submit" type="submit">Add approved clan</button>
+          </form>
         </div>
         <div class="admin-panel event-admin-panel">
           <div class="admin-panel-heading">
@@ -551,6 +595,13 @@
             <p>Review clan registrations before they appear in the official public list.</p>
           </div>
           <div class="admin-clan-list" id="admin-clan-list" aria-live="polite"></div>
+        </div>
+        <div class="admin-panel">
+          <div class="admin-panel-heading">
+            <h3>Clan managers</h3>
+            <p>Grant one roster member permission to manage their clan. Access is limited to that clan and never reveals device serials.</p>
+          </div>
+          <div class="admin-clan-manager-list" id="admin-clan-manager-list" aria-live="polite"></div>
         </div>
         <div class="admin-panel">
           <div class="admin-panel-heading">

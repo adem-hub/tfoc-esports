@@ -40,13 +40,20 @@ function pngChunk(type, data) {
   return Buffer.concat([length, typeBuffer, data, checksum]);
 }
 
-function testPngDataUrl(width = 64, height = width) {
+function testPngDataUrl(width = 64, height = width, noisy = false) {
   const header = Buffer.alloc(13);
   header.writeUInt32BE(width, 0);
   header.writeUInt32BE(height, 4);
   header[8] = 8;
   header[9] = 6;
   const pixels = Buffer.alloc(height * (width * 4 + 1));
+  if (noisy) {
+    for (let row = 0; row < height; row += 1) {
+      const start = row * (width * 4 + 1);
+      pixels[start] = 0;
+      crypto.randomFillSync(pixels, start + 1, width * 4);
+    }
+  }
   const png = Buffer.concat([
     Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
     pngChunk('IHDR', header),
@@ -414,18 +421,10 @@ test('clan registration, consent, invitations, roster privacy, and owner permiss
   }, owner.cookie);
   assert.equal(noConsent.status, 400);
 
-  const nonSquareLogo = await send('/api/clans', {
-    name: 'Alpha Clan',
-    tag: 'ALPHA',
-    logoDataUrl: testPngDataUrl(64, 32),
-    publicRosterConsent: true
-  }, owner.cookie);
-  assert.equal(nonSquareLogo.status, 400);
-
   const created = await send('/api/clans', {
     name: 'Alpha Clan',
     tag: 'ALPHA',
-    logoDataUrl,
+    logoDataUrl: testPngDataUrl(32, 16),
     publicRosterConsent: true
   }, owner.cookie);
   assert.equal(created.status, 201);
@@ -512,6 +511,7 @@ test('clan registration, consent, invitations, roster privacy, and owner permiss
   const publicClan = (await publicAfterJoin.json()).clan;
   assert.equal(publicClan.memberCount, 2);
   assert.equal(publicClan.roster.some((rosterMember) => Object.hasOwn(rosterMember, 'id')), false);
+  assert.equal(publicClan.roster.every((rosterMember) => rosterMember.role && rosterMember.joinedAt), true);
   assert.equal(JSON.stringify(publicClan).includes('PRIVATE-SERIAL'), false);
 
   const inviteeInvitation = await send(`/api/clans/${clanId}/invitations`, {
@@ -532,9 +532,64 @@ test('clan registration, consent, invitations, roster privacy, and owner permiss
   assert.equal(memberCannotEdit.status, 403);
   const memberCannotDelete = await send(`/api/clans/${clanId}`, {}, member.cookie, 'DELETE');
   assert.equal(memberCannotDelete.status, 403);
+  const memberCannotEditRosterYet = await send(`/api/clans/${clanId}/members/${member.id}`, {
+    playerId: 'NEW-PLAYER-ID'
+  }, member.cookie, 'PUT');
+  assert.equal(memberCannotEditRosterYet.status, 403);
+  assert.equal((await send('/api/admin/clan-managers', {}, member.cookie, 'GET')).status, 403);
+
+  const managerList = await send('/api/admin/clan-managers', {}, owner.cookie, 'GET');
+  assert.equal((await managerList.json()).clans.some((item) => item.id === clanId), true);
+  const assignManager = await send(`/api/admin/clans/${clanId}/manager`, {
+    managerId: member.id
+  }, owner.cookie, 'PUT');
+  assert.equal(assignManager.status, 200);
+  const managerDetails = await send('/api/my-clans', {}, member.cookie, 'GET');
+  assert.equal((await managerDetails.json()).clan.canManageClan, true);
+
+  const managerUpdatePlayer = await send(`/api/clans/${clanId}/members/${member.id}`, {
+    playerId: 'UPDATED-GAME-ID',
+    deviceSerial: 'UPDATED-PRIVATE-SERIAL'
+  }, member.cookie, 'PUT');
+  assert.equal(managerUpdatePlayer.status, 200);
+  assert.equal(JSON.stringify(await managerUpdatePlayer.json()).includes('UPDATED-PRIVATE-SERIAL'), false);
+  const updatedPublicClan = await send('/api/clans/ALPHA', {}, undefined, 'GET');
+  assert.equal((await updatedPublicClan.json()).clan.roster.find((rosterMember) =>
+    rosterMember.username === member.username).playerId, 'UPDATED-GAME-ID');
+  const updatedPlayer = database.prepare('SELECT player_id, device_serial_encrypted FROM users WHERE id = ?')
+    .get(member.id);
+  assert.equal(updatedPlayer.player_id, 'UPDATED-GAME-ID');
+  assert.equal(updatedPlayer.device_serial_encrypted.includes('UPDATED-PRIVATE-SERIAL'), false);
+  const duplicatePlayerId = await send(`/api/clans/${clanId}/members/${member.id}`, {
+    playerId: 'GAME-CLAN_OWNER'
+  }, member.cookie, 'PUT');
+  assert.equal(duplicatePlayerId.status, 409);
+
+  const managerInvite = await send(`/api/clans/${clanId}/invitations`, {
+    username: outsider.username
+  }, member.cookie);
+  assert.equal(managerInvite.status, 201);
+  const managerPending = await send('/api/my-clans', {}, member.cookie, 'GET');
+  assert.equal((await managerPending.json()).sentInvitations.some((invitation) =>
+    invitation.username === outsider.username), true);
+  const outsiderAccept = await send(`/api/clan-invitations/${(await managerInvite.json()).invitationId}/respond`, {
+    decision: 'accept',
+    publicRosterConsent: true
+  }, outsider.cookie);
+  assert.equal(outsiderAccept.status, 200);
+  assert.equal((await send(`/api/clans/${clanId}/members/${owner.id}`, {}, member.cookie, 'DELETE')).status, 400);
+  assert.equal((await send(`/api/clans/${clanId}/members/${outsider.id}`, {}, member.cookie, 'DELETE')).status, 200);
+
+  const managerEditClan = await send(`/api/clans/${clanId}`, {
+    name: 'Manager Updated',
+    tag: 'MANAGED'
+  }, member.cookie, 'PUT');
+  assert.equal(managerEditClan.status, 200);
+  assert.equal((await send(`/api/admin/clans/${clanId}/review`, { decision: 'approve' }, owner.cookie)).status, 200);
 
   const removeMember = await send(`/api/clans/${clanId}/members/${member.id}`, {}, owner.cookie, 'DELETE');
   assert.equal(removeMember.status, 200);
+  assert.equal(database.prepare('SELECT clan_id FROM clan_managers WHERE clan_id = ?').get(clanId), undefined);
   const memberCanCreateClan = await send('/api/clans', {
     name: 'New Clan',
     tag: 'NEW',
@@ -658,6 +713,11 @@ test('tournament administrators manage registrations, draws, match results, stan
     return (await response.json()).tournament;
   };
   const registerAllClans = async (tournament) => {
+    if (!tournament.published) {
+      const publish = await send(`/api/tournament-admin/${tournament.id}/publish`, {}, manager.cookie);
+      assert.equal(publish.status, 200);
+      tournament.published = true;
+    }
     for (const clan of clans) {
       const response = await send(`/api/tournaments/${tournament.id}/register`, {}, clan.cookie);
       assert.equal(response.status, 201);
@@ -680,6 +740,13 @@ test('tournament administrators manage registrations, draws, match results, stan
   );
 
   const groups = await createTournament('TFOC Groups Cup', 'groups_elimination', 'random', 4);
+  assert.equal(groups.published, false);
+  const publicDrafts = await send('/api/tournaments', {}, undefined, 'GET');
+  assert.equal((await publicDrafts.json()).tournaments.some((item) => item.id === groups.id), false);
+  assert.equal((await send(`/api/tournaments/${groups.id}/register`, {}, clans[0].cookie)).status, 409);
+  assert.equal((await send(`/api/tournament-admin/${groups.id}/publish`, {}, players[1].cookie)).status, 404);
+  assert.equal((await send(`/api/tournament-admin/${groups.id}/publish`, {}, manager.cookie)).status, 200);
+  groups.published = true;
   const groupsState = await registerAllClans(groups);
   assert.equal((await send('/api/admin/users', {}, manager.cookie, 'GET')).status, 403);
   assert.equal((await send(`/api/tournament-admin/${groups.id}/draw`, {}, players[1].cookie)).status, 404);
@@ -746,6 +813,87 @@ test('tournament administrators manage registrations, draws, match results, stan
   assert.equal(publicLeague.status, 'completed');
   assert.equal(publicLeague.standings[0].points, 9);
   assert.equal(publicLeague.standings.reduce((total, entry) => total + entry.points, 0), 18);
+});
+
+test('site owner can add an approved clan with a large, non-square logo', async (context) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'tfoc-manual-clan-test-'));
+  const { server, database } = createApplication(testConfig(path.join(directory, 'accounts.sqlite')));
+
+  context.after(async () => {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+    database.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  });
+
+  const origin = await startTestServer(server);
+  const send = (route, body, cookie, method = 'POST') => fetch(`${origin}${route}`, {
+    method,
+    headers: {
+      Origin: origin,
+      'Content-Type': 'application/json',
+      ...(cookie ? { Cookie: cookie } : {})
+    },
+    ...(method === 'GET' ? {} : { body: JSON.stringify(body) })
+  });
+  const register = async (username) => {
+    const response = await send('/api/register', {
+      username,
+      email: `${username}@example.test`,
+      playerId: `GAME-${username.toUpperCase()}`,
+      accountType: 'Player',
+      whatsappPhone: `+216${username === 'manual_owner' ? '00000001' : '00000002'}`,
+      deviceSerial: `PRIVATE-SERIAL-${username}`,
+      password: 'a-strong-password-123'
+    });
+    assert.equal(response.status, 201);
+    return {
+      ...(await response.json()).user,
+      cookie: response.headers.get('set-cookie').split(';', 1)[0]
+    };
+  };
+  const owner = await register('manual_owner');
+  const player = await register('manual_player');
+  await bootstrapOwner(database, owner.email, 'a-strong-password-123');
+  const logoDataUrl = testPngDataUrl(400, 400, true);
+  const logoBytes = Buffer.from(logoDataUrl.split(',')[1], 'base64');
+  assert.ok(logoBytes.length > 512 * 1024);
+  assert.ok(logoBytes.length < 10 * 1024 * 1024);
+
+  assert.equal((await send('/api/admin/clan-owners', {}, player.cookie, 'GET')).status, 403);
+  const ownerList = await send('/api/admin/clan-owners', {}, owner.cookie, 'GET');
+  assert.equal((await ownerList.json()).users.some((user) => user.id === player.id), true);
+
+  const noConsent = await send('/api/admin/clans/manual', {
+    name: 'Manual Clan',
+    tag: 'MANUAL',
+    ownerId: player.id,
+    logoDataUrl,
+    publicRosterConsent: false
+  }, owner.cookie);
+  assert.equal(noConsent.status, 400);
+  const unauthorized = await send('/api/admin/clans/manual', {
+    name: 'Manual Clan',
+    tag: 'MANUAL',
+    ownerId: player.id,
+    logoDataUrl,
+    publicRosterConsent: true
+  }, player.cookie);
+  assert.equal(unauthorized.status, 403);
+
+  const created = await send('/api/admin/clans/manual', {
+    name: 'Manual Clan',
+    tag: 'MANUAL',
+    ownerId: player.id,
+    logoDataUrl,
+    publicRosterConsent: true
+  }, owner.cookie);
+  assert.equal(created.status, 201);
+  const { clan } = await created.json();
+  assert.equal(clan.approvalStatus, 'approved');
+  assert.equal(clan.roster[0].id, player.id);
+  const publicListing = await send('/api/clans', {}, undefined, 'GET');
+  assert.equal((await publicListing.json()).clans.some((item) => item.tag === 'MANUAL'), true);
 });
 
 test('site administrators publish, update, and remove public events with pictures', async (context) => {

@@ -39,9 +39,12 @@ The site-content editor changes public text only; it does not change the website
 
 ## Clan registration and rosters
 
-- Any signed-in player can submit one clan at a time with a unique 2–8 character tag and a square PNG or JPEG logo (64–1024 pixels, up to 512 KB). New submissions are private until an admin approves them.
-- Admins and the owner can review pending clan submissions from the admin dashboard and approve or reject them. Only approved clans appear in the official public list. Editing an approved clan sends it back for review.
-- Clan owners can edit the clan, invite existing players by username, remove members, or delete the clan. Invited players must accept to join and may decline instead.
+- Any signed-in player can submit one clan at a time with a unique 2–8 character tag and a PNG or JPEG logo of any dimensions, up to 10 MB. New submissions are private until an admin approves them.
+- The site owner can also add approved clans manually by assigning an eligible player as owner and confirming permission to publish that player’s username and player ID.
+- Admins and the owner can review pending clan submissions from the admin dashboard and approve or reject them. Every approved clan, logo, owner, full roster, public player ID, role, and join date appears in the public list. Contact details and device serials are never public.
+- Site admins can assign one existing member as the manager of each clan. The manager can edit clan details, invite players, remove members, and update roster player IDs or registered device serials. Clan-detail edits still require admin approval.
+- Player ID and device serial changes made by an assigned clan manager update the player account directly. Serial values remain encrypted at rest and are never returned to the manager or published. A blank serial field leaves the current serial unchanged.
+- Clan owners and assigned managers can invite existing players by username; invited players must accept and consent to public roster display before joining. Clan owners can delete their clan; members can leave.
 - Clan owners and invited players explicitly consent before their username and player ID appear on the public roster. Phone numbers and encrypted device serials are never included in public clan data.
 - Players can belong to one clan at a time. Members can leave; the owner must delete the clan to remove their own membership.
 
@@ -49,6 +52,7 @@ The site-content editor changes public text only; it does not change the website
 
 - The site owner creates tournaments with a logo, name, organizers, clan capacity, and a competition system: league (round robin), single elimination, or groups followed by elimination. League capacity is limited to 16 clans; other formats support up to 32.
 - When creating a tournament, the owner assigns an existing player as its tournament administrator. That role applies only to the selected tournament and does not grant site-wide admin access.
+- Tournaments start as drafts and are hidden from the public. The assigned administrator must publish the tournament before clans can register.
 - Owners of approved clans can register them while sign-up is open. The assigned tournament administrator can accept, decline, or remove registrations before the draw.
 - Once all pending registrations are reviewed, the administrator creates a random draw or sets the manual draw order. The site generates fixtures, including group rounds and knockout progression.
 - The tournament administrator can set match times and save scores. Public tournament pages show accepted clans, match schedules and results, and standings.
@@ -59,6 +63,7 @@ The site-content editor changes public text only; it does not change the website
 - The owner and site-wide admins can publish public event stories with a title, written description, and PNG/JPEG picture.
 - Event descriptions are plain text. Pictures may be square, landscape, or portrait, between 64 and 2400 pixels, up to 1 MB.
 - Admins can edit an event's title and description while keeping its current picture, replace the picture, or delete the event.
+- The homepage shows a horizontally auto-advancing carousel of recent event, published tournament, active blacklist, and clan updates. Cards use their event picture, tournament or clan logo, or a blacklist icon as a translucent background. Visitors can pause the carousel or move between cards manually.
 
 ## Public player blacklist
 

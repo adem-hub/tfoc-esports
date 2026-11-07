@@ -37,8 +37,12 @@ const siteContentKey = document.querySelector('#site-content-key');
 const siteContentValue = document.querySelector('#site-content-value');
 const adminUserList = document.querySelector('#admin-user-list');
 const adminClanList = document.querySelector('#admin-clan-list');
+const adminClanManagerList = document.querySelector('#admin-clan-manager-list');
 const adminBanList = document.querySelector('#admin-ban-list');
 const tournamentCreatePanel = document.querySelector('#tournament-create-panel');
+const manualClanPanel = document.querySelector('#manual-clan-panel');
+const manualClanForm = document.querySelector('#manual-clan-form');
+const manualClanOwner = document.querySelector('#manual-clan-owner');
 const createTournamentForm = document.querySelector('#create-tournament-form');
 const tournamentManagerUser = document.querySelector('#tournament-manager-user');
 const tournamentAdminPanel = document.querySelector('#tournament-admin-panel');
@@ -61,9 +65,19 @@ const publicClanList = document.querySelector('#public-clan-list');
 const publicBlacklist = document.querySelector('#public-blacklist');
 const publicTournamentList = document.querySelector('#public-tournament-list');
 const publicEventList = document.querySelector('#public-event-list');
+const homeNews = document.querySelector('.home-news');
+const homeNewsViewport = document.querySelector('.home-news-viewport');
+const homeNewsTrack = document.querySelector('#home-news-track');
+const homeNewsPrevious = document.querySelector('#home-news-previous');
+const homeNewsNext = document.querySelector('#home-news-next');
+const homeNewsPause = document.querySelector('#home-news-pause');
 let currentUser = null;
 let currentClan = null;
 let editableSiteFields = [];
+let homeNewsIndex = 0;
+let homeNewsTimer = null;
+let homeNewsPaused = false;
+let homeNewsScrollFrame = null;
 
 function showMessage(message, kind = 'error') {
   accountMessage.textContent = message;
@@ -174,7 +188,10 @@ function createRosterTable(members, options = {}) {
   table.className = 'clan-roster-table';
   const head = document.createElement('thead');
   const headerRow = document.createElement('tr');
-  for (const heading of ['Player', 'Player ID', ...(options.canManage ? [''] : [])]) {
+  const headings = options.canManage
+    ? ['Player', 'Player ID', 'New device serial · private', 'Actions']
+    : ['Player', 'Player ID', 'Role', 'Joined'];
+  for (const heading of headings) {
     const cell = document.createElement('th');
     cell.scope = 'col';
     cell.textContent = heading;
@@ -189,20 +206,55 @@ function createRosterTable(members, options = {}) {
     const player = document.createElement('td');
     player.textContent = member.username;
     const playerId = document.createElement('td');
-    playerId.textContent = member.playerId;
-    row.append(player, playerId);
-    if (options.canManage && member.role !== 'owner') {
-      const action = document.createElement('td');
-      const remove = document.createElement('button');
-      remove.type = 'button';
-      remove.className = 'admin-action-button admin-action-danger';
-      remove.textContent = options.currentUserId === member.id ? 'Leave clan' : 'Remove';
-      remove.addEventListener('click', () => removeClanMember(options.clanId, member.id, member.username));
-      action.append(remove);
-      row.append(action);
-    } else if (options.canManage) {
-      row.append(document.createElement('td'));
+    if (options.canManage) {
+      const playerIdInput = document.createElement('input');
+      playerIdInput.className = 'clan-roster-edit-input';
+      playerIdInput.type = 'text';
+      playerIdInput.minLength = 3;
+      playerIdInput.maxLength = 64;
+      playerIdInput.value = member.playerId;
+      playerIdInput.setAttribute('aria-label', `${member.username} player ID`);
+      playerId.append(playerIdInput);
+      const serial = document.createElement('input');
+      serial.className = 'clan-roster-edit-input';
+      serial.type = 'password';
+      serial.minLength = 3;
+      serial.maxLength = 128;
+      serial.autocomplete = 'new-password';
+      serial.placeholder = 'Leave blank to keep current';
+      serial.setAttribute('aria-label', `${member.username} new private device serial`);
+      const serialCell = document.createElement('td');
+      serialCell.append(serial);
+      const actions = document.createElement('td');
+      const actionGroup = document.createElement('div');
+      actionGroup.className = 'clan-manager-edit-actions';
+      const save = document.createElement('button');
+      save.type = 'button';
+      save.className = 'admin-action-button';
+      save.textContent = 'Save';
+      save.addEventListener('click', () => saveClanMemberDetails(
+        options.clanId, member, playerIdInput.value, serial.value, save
+      ));
+      actionGroup.append(save);
+      if (member.role !== 'owner') {
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'admin-action-button admin-action-danger';
+        remove.textContent = options.currentUserId === member.id ? 'Leave clan' : 'Remove';
+        remove.addEventListener('click', () => removeClanMember(options.clanId, member.id, member.username));
+        actionGroup.append(remove);
+      }
+      actions.append(actionGroup);
+      row.append(player, playerId, serialCell, actions);
+      body.append(row);
+      continue;
     }
+    playerId.textContent = member.playerId;
+    const role = document.createElement('td');
+    role.textContent = member.role === 'owner' ? 'Owner' : 'Member';
+    const joined = document.createElement('td');
+    joined.textContent = formatBlacklistDate(member.joinedAt);
+    row.append(player, playerId, role, joined);
     body.append(row);
   }
   table.append(body);
@@ -239,7 +291,9 @@ function renderPublicClans(clans) {
     name.textContent = clan.name;
     const owner = document.createElement('p');
     owner.textContent = `Captain: ${clan.ownerUsername}`;
-    identity.append(tag, name, owner);
+    const registered = document.createElement('p');
+    registered.textContent = `Registered ${formatBlacklistDate(clan.createdAt)}`;
+    identity.append(tag, name, owner, registered);
     heading.append(logo, identity);
 
     const rosterHeading = document.createElement('div');
@@ -251,7 +305,7 @@ function renderPublicClans(clans) {
     rosterHeading.append(rosterTitle, count);
     const privacy = document.createElement('p');
     privacy.className = 'roster-privacy';
-    privacy.textContent = 'Username and player ID only. Phone serial numbers are private.';
+    privacy.textContent = 'Roster roles and join dates are public with usernames and player IDs. Contact details and device serials stay private.';
     const table = createRosterTable(clan.roster);
     card.append(heading, rosterHeading, privacy, table);
     publicClanList.append(card);
@@ -516,6 +570,200 @@ async function loadPublicEvents() {
   renderPublicEvents(result.events);
 }
 
+function updateHomeNewsFocus(scroll = false) {
+  const cards = [...homeNewsTrack.querySelectorAll('.home-news-card')];
+  if (!cards.length) return;
+  cards.forEach((card, index) => {
+    card.classList.toggle('is-focused', index === homeNewsIndex);
+    card.setAttribute('aria-current', index === homeNewsIndex ? 'true' : 'false');
+  });
+  if (scroll) {
+    const card = cards[homeNewsIndex];
+    const viewportBounds = homeNewsViewport.getBoundingClientRect();
+    const cardBounds = card.getBoundingClientRect();
+    const left = homeNewsViewport.scrollLeft
+      + cardBounds.left - viewportBounds.left
+      - (homeNewsViewport.clientWidth - cardBounds.width) / 2;
+    homeNewsViewport.scrollTo({
+      left,
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+    });
+  }
+}
+
+function stopHomeNewsRotation() {
+  if (homeNewsTimer !== null) {
+    window.clearInterval(homeNewsTimer);
+    homeNewsTimer = null;
+  }
+}
+
+function startHomeNewsRotation() {
+  stopHomeNewsRotation();
+  if (homeNewsPaused || document.hidden || homeNewsTrack.children.length < 2) return;
+  homeNewsTimer = window.setInterval(() => {
+    homeNewsIndex = (homeNewsIndex + 1) % homeNewsTrack.children.length;
+    updateHomeNewsFocus(true);
+  }, 5200);
+}
+
+function showHomeNewsItem(direction) {
+  const total = homeNewsTrack.children.length;
+  if (!total) return;
+  homeNewsIndex = (homeNewsIndex + direction + total) % total;
+  updateHomeNewsFocus(true);
+  startHomeNewsRotation();
+}
+
+function renderHomeNews(items) {
+  homeNewsTrack.replaceChildren();
+  for (const item of items) {
+    const card = document.createElement('a');
+    card.className = 'home-news-card';
+    card.href = item.href;
+    card.setAttribute('aria-roledescription', 'slide');
+    const background = document.createElement('img');
+    background.className = 'home-news-background';
+    background.src = item.imageUrl || '/Logo.jpg';
+    background.alt = '';
+    background.setAttribute('aria-hidden', 'true');
+    background.loading = 'lazy';
+    background.decoding = 'async';
+    const content = document.createElement('div');
+    content.className = 'home-news-content';
+    const category = document.createElement('span');
+    category.textContent = item.category;
+    const title = document.createElement('strong');
+    title.textContent = item.title;
+    const detail = document.createElement('small');
+    detail.textContent = item.detail;
+    content.append(category, title, detail);
+    card.append(background, content);
+    homeNewsTrack.append(card);
+  }
+  homeNewsIndex = 0;
+  updateHomeNewsFocus(true);
+  startHomeNewsRotation();
+}
+
+async function loadHomepageNews() {
+  const results = await Promise.allSettled([
+    requestApi('/api/events'),
+    requestApi('/api/tournaments'),
+    requestApi('/api/blacklist'),
+    requestApi('/api/clans')
+  ]);
+  const updates = [];
+  const [events, tournaments, blacklist, clans] = results;
+  if (events.status === 'fulfilled') {
+    for (const event of events.value.events) {
+      updates.push({
+        category: 'New event',
+        title: event.title,
+        detail: formatBlacklistDate(event.createdAt),
+        createdAt: event.createdAt,
+        imageUrl: event.imageUrl,
+        href: '#events'
+      });
+    }
+  }
+  if (tournaments.status === 'fulfilled') {
+    for (const tournament of tournaments.value.tournaments) {
+      updates.push({
+        category: 'Tournament',
+        title: tournament.name,
+        detail: `${tournamentFormatName(tournament.format)} · ${formatBlacklistDate(tournament.createdAt)}`,
+        createdAt: tournament.createdAt,
+        imageUrl: tournament.logoUrl,
+        href: '#tournaments'
+      });
+    }
+  }
+  if (blacklist.status === 'fulfilled') {
+    for (const ban of blacklist.value.bans) {
+      updates.push({
+        category: 'Blacklist update',
+        title: ban.username,
+        detail: `Public record added · ${formatBlacklistDate(ban.createdAt)}`,
+        createdAt: ban.createdAt,
+        imageUrl: '/blacklist-icon.svg',
+        href: '#blacklist'
+      });
+    }
+  }
+  if (clans.status === 'fulfilled') {
+    for (const clan of clans.value.clans) {
+      updates.push({
+        category: 'Registered clan',
+        title: `${clan.name} [${clan.tag}]`,
+        detail: `${clan.memberCount} ${clan.memberCount === 1 ? 'player' : 'players'} · ${formatBlacklistDate(clan.createdAt)}`,
+        createdAt: clan.createdAt,
+        imageUrl: clan.logoUrl,
+        href: '#clans'
+      });
+    }
+  }
+  updates.sort((first, second) => Date.parse(second.createdAt) - Date.parse(first.createdAt));
+  if (updates.length) {
+    renderHomeNews(updates.slice(0, 10));
+  } else if (results.every((result) => result.status === 'rejected')) {
+    renderHomeNews([{
+      category: 'TFOC updates',
+      title: 'Updates unavailable',
+      detail: 'Check your connection and refresh.',
+      href: '#home'
+    }]);
+  } else {
+    renderHomeNews([{
+      category: 'Join the community',
+      title: 'Play as one',
+      detail: 'Meet the clans and players of TFOC.',
+      href: '#clans'
+    }]);
+  }
+}
+
+homeNewsPrevious.addEventListener('click', () => showHomeNewsItem(-1));
+homeNewsNext.addEventListener('click', () => showHomeNewsItem(1));
+homeNewsPause.addEventListener('click', () => {
+  homeNewsPaused = !homeNewsPaused;
+  homeNewsPause.textContent = homeNewsPaused ? '▶' : 'Ⅱ';
+  homeNewsPause.setAttribute('aria-label', homeNewsPaused ? 'Play updates' : 'Pause updates');
+  startHomeNewsRotation();
+});
+homeNewsPause.textContent = homeNewsPaused ? '▶' : 'Ⅱ';
+homeNewsPause.setAttribute('aria-label', homeNewsPaused ? 'Play updates' : 'Pause updates');
+homeNews.addEventListener('focusin', () => {
+  stopHomeNewsRotation();
+});
+homeNews.addEventListener('focusout', (event) => {
+  if (!event.relatedTarget || !homeNews.contains(event.relatedTarget)) {
+    startHomeNewsRotation();
+  }
+});
+homeNewsViewport.addEventListener('scroll', () => {
+  if (homeNewsScrollFrame !== null) cancelAnimationFrame(homeNewsScrollFrame);
+  homeNewsScrollFrame = requestAnimationFrame(() => {
+    homeNewsScrollFrame = null;
+    const viewportBounds = homeNewsViewport.getBoundingClientRect();
+    const viewportCenter = viewportBounds.left + viewportBounds.width / 2;
+    const cards = [...homeNewsTrack.querySelectorAll('.home-news-card')];
+    if (!cards.length) return;
+    const closestIndex = cards.reduce((bestIndex, card, index) => {
+      const bounds = card.getBoundingClientRect();
+      const distance = Math.abs(bounds.left + bounds.width / 2 - viewportCenter);
+      const bestBounds = cards[bestIndex].getBoundingClientRect();
+      const bestDistance = Math.abs(bestBounds.left + bestBounds.width / 2 - viewportCenter);
+      return distance < bestDistance ? index : bestIndex;
+    }, 0);
+    if (closestIndex !== homeNewsIndex) {
+      homeNewsIndex = closestIndex;
+      updateHomeNewsFocus();
+    }
+  });
+});
+document.addEventListener('visibilitychange', startHomeNewsRotation);
+
 function renderAdminEvents(events) {
   adminEventList.replaceChildren();
   if (!events.length) {
@@ -589,7 +837,7 @@ async function saveEvent(event) {
     resetEventForm();
     showAdminMessage(eventId ? 'Event updated.' : 'Event published.', 'success');
     renderAdminEvents(await requestApi('/api/admin/events').then((response) => response.events));
-    await loadPublicEvents();
+    await Promise.all([loadPublicEvents(), loadHomepageNews()]);
   } catch (error) {
     showAdminMessage(error.message);
   } finally {
@@ -608,7 +856,7 @@ async function deleteEvent(event) {
     showAdminMessage('Event deleted.', 'success');
     const result = await requestApi('/api/admin/events');
     renderAdminEvents(result.events);
-    await loadPublicEvents();
+    await Promise.all([loadPublicEvents(), loadHomepageNews()]);
   } catch (error) {
     showAdminMessage(error.message);
   }
@@ -863,7 +1111,9 @@ function renderCurrentClan(clan, sentInvitations) {
   const name = document.createElement('h4');
   name.textContent = clan.name;
   const role = document.createElement('p');
-  role.textContent = clan.memberRole === 'owner' ? 'Clan owner' : 'Clan member';
+  role.textContent = clan.memberRole === 'owner'
+    ? 'Clan owner'
+    : clan.isClanManager ? 'Assigned clan manager' : 'Clan member';
   identity.append(tag, name, role);
   heading.append(logo, identity);
   const approvalStatus = document.createElement('p');
@@ -885,14 +1135,14 @@ function renderCurrentClan(clan, sentInvitations) {
   rosterHeading.append(rosterTitle, count);
   const privacy = document.createElement('p');
   privacy.className = 'roster-privacy';
-  privacy.textContent = 'This roster is public and includes usernames and player IDs only. Device serial numbers are never shared.';
+  privacy.textContent = 'Roster usernames, player IDs, roles, and join dates are public. Contact details and device serials are never shared.';
   myClanPanel.append(heading, approvalStatus, rosterHeading, privacy, createRosterTable(clan.roster, {
-    canManage: true,
+    canManage: clan.canManageClan,
     clanId: clan.id,
     currentUserId: currentUser.id
   }));
 
-  if (clan.memberRole !== 'owner') return;
+  if (!clan.canManageClan) return;
 
   const editForm = document.createElement('form');
   editForm.className = 'clan-form clan-edit-form';
@@ -958,13 +1208,15 @@ function renderCurrentClan(clan, sentInvitations) {
     pendingList.append(empty);
   }
 
-  const deleteButton = document.createElement('button');
-  deleteButton.className = 'button button-quiet clan-delete-button';
-  deleteButton.type = 'button';
-  deleteButton.textContent = 'Delete clan';
-  deleteButton.addEventListener('click', () => deleteCurrentClan(clan.id, clan.name));
-
-  myClanPanel.append(editForm, inviteForm, sentHeading, pendingList, deleteButton);
+  myClanPanel.append(editForm, inviteForm, sentHeading, pendingList);
+  if (clan.memberRole === 'owner') {
+    const deleteButton = document.createElement('button');
+    deleteButton.className = 'button button-quiet clan-delete-button';
+    deleteButton.type = 'button';
+    deleteButton.textContent = 'Delete clan';
+    deleteButton.addEventListener('click', () => deleteCurrentClan(clan.id, clan.name));
+    myClanPanel.append(deleteButton);
+  }
 }
 
 async function loadMyClan() {
@@ -1001,16 +1253,7 @@ async function readClanLogo(file) {
   if (!(file instanceof File) || !['image/png', 'image/jpeg'].includes(file.type)) {
     throw new Error('Choose a PNG or JPEG clan logo.');
   }
-  if (file.size > 512 * 1024) throw new Error('The clan logo must be under 512 KB.');
-
-  const bitmap = await createImageBitmap(file);
-  try {
-    if (bitmap.width !== bitmap.height || bitmap.width < 64 || bitmap.width > 1024) {
-      throw new Error('Use a square logo between 64 × 64 and 1024 × 1024 pixels.');
-    }
-  } finally {
-    bitmap.close();
-  }
+  if (file.size > 10 * 1024 * 1024) throw new Error('The clan logo must be under 10 MB.');
 
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -1058,6 +1301,32 @@ async function updateClan(event, clanId) {
     showMessage(error.message);
   } finally {
     setFormBusy(form, false);
+  }
+}
+
+async function saveClanMemberDetails(clanId, member, playerId, deviceSerial, button) {
+  const updatedPlayerId = playerId.trim();
+  const updatedSerial = deviceSerial.trim();
+  if (updatedPlayerId.length < 3 || updatedPlayerId.length > 64
+      || (updatedSerial && (updatedSerial.length < 3 || updatedSerial.length > 128))) {
+    showMessage('Enter a player ID of 3–64 characters and, if changing it, a device serial of 3–128 characters.');
+    return;
+  }
+  button.disabled = true;
+  clearMessage();
+  try {
+    const body = { playerId: updatedPlayerId };
+    if (updatedSerial) body.deviceSerial = updatedSerial;
+    await requestApi(`/api/clans/${encodeURIComponent(clanId)}/members/${encodeURIComponent(member.id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(body)
+    });
+    showMessage(`${member.username}’s player details updated. Device serials remain private.`, 'success');
+    await Promise.all([loadMyClan(), loadPublicClans()]);
+  } catch (error) {
+    showMessage(error.message);
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -1119,6 +1388,51 @@ async function createClan(event) {
     showMessage(error.message);
   } finally {
     setFormBusy(form, false);
+  }
+}
+
+function updateManualClanOwnerOptions(users) {
+  manualClanOwner.replaceChildren();
+  const prompt = document.createElement('option');
+  prompt.value = '';
+  prompt.textContent = users.length ? 'Select an available player' : 'No eligible players available';
+  manualClanOwner.append(prompt);
+  for (const user of users) {
+    const option = document.createElement('option');
+    option.value = user.id;
+    option.textContent = user.username;
+    manualClanOwner.append(option);
+  }
+  manualClanOwner.disabled = users.length === 0;
+  manualClanForm.querySelector('[type="submit"]').disabled = users.length === 0;
+}
+
+async function createManualClan(event) {
+  event.preventDefault();
+  setFormBusy(manualClanForm, true);
+  clearAdminMessage();
+  try {
+    const body = formValues(manualClanForm);
+    body.publicRosterConsent = manualClanForm.elements.namedItem('publicRosterConsent').checked;
+    body.logoDataUrl = await readClanLogo(manualClanForm.elements.namedItem('logo').files[0]);
+    delete body.logo;
+    const result = await requestApi('/api/admin/clans/manual', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
+    manualClanForm.reset();
+    showAdminMessage(`Clan ${result.clan.name} [${result.clan.tag}] added and approved.`, 'success');
+    const [ownersResult] = await Promise.all([
+      requestApi('/api/admin/clan-owners'),
+      loadAdminDashboard(),
+      loadPublicClans()
+    ]);
+    updateManualClanOwnerOptions(ownersResult.users);
+  } catch (error) {
+    showAdminMessage(error.message);
+  } finally {
+    setFormBusy(manualClanForm, false);
+    if (manualClanOwner.options.length <= 1) manualClanForm.querySelector('[type="submit"]').disabled = true;
   }
 }
 
@@ -1195,7 +1509,7 @@ function addAdminClan(clan) {
   const name = document.createElement('strong');
   name.textContent = `${clan.name} [${clan.tag}]`;
   const owner = document.createElement('span');
-  owner.textContent = `Owner: ${clan.ownerUsername}`;
+  owner.textContent = `Owner: ${clan.ownerUsername} · ${clan.approvalStatus}`;
   const roster = document.createElement('small');
   roster.textContent = `Roster: ${clan.roster.map((member) => `${member.username} (${member.playerId})`).join(', ')}`;
   details.append(name, owner, roster);
@@ -1216,6 +1530,67 @@ function addAdminClan(clan) {
   actions.append(approve, reject);
   card.append(identity, actions);
   adminClanList.append(card);
+}
+
+function renderAdminClanManagers(clans) {
+  adminClanManagerList.replaceChildren();
+  if (!clans.length) {
+    const empty = document.createElement('p');
+    empty.className = 'admin-loading';
+    empty.textContent = 'Approved clans will appear here when available.';
+    adminClanManagerList.append(empty);
+    return;
+  }
+  for (const clan of clans) {
+    const row = document.createElement('div');
+    row.className = 'clan-manager-assignment';
+    const identity = document.createElement('div');
+    identity.className = 'clan-manager-assignment-identity';
+    const name = document.createElement('strong');
+    name.textContent = `${clan.name} [${clan.tag}]`;
+    const owner = document.createElement('span');
+    owner.textContent = `Owner: ${clan.ownerUsername}`;
+    identity.append(name, owner);
+
+    const select = document.createElement('select');
+    select.setAttribute('aria-label', `Assigned manager for ${clan.name}`);
+    const none = document.createElement('option');
+    none.value = '';
+    none.textContent = 'No assigned manager';
+    select.append(none);
+    const eligible = clan.roster.filter((member) => member.role === 'member');
+    for (const member of eligible) {
+      const option = document.createElement('option');
+      option.value = member.id;
+      option.textContent = member.username;
+      select.append(option);
+    }
+    select.value = clan.managerId || '';
+
+    const save = document.createElement('button');
+    save.className = 'admin-action-button';
+    save.type = 'button';
+    save.textContent = 'Save permission';
+    save.addEventListener('click', () => saveClanManager(clan.id, select.value || null, save));
+    row.append(identity, select, save);
+    adminClanManagerList.append(row);
+  }
+}
+
+async function saveClanManager(clanId, managerId, button) {
+  button.disabled = true;
+  try {
+    await requestApi(`/api/admin/clans/${encodeURIComponent(clanId)}/manager`, {
+      method: 'PUT',
+      body: JSON.stringify({ managerId })
+    });
+    showAdminMessage(managerId ? 'Clan manager permission updated.' : 'Clan manager permission removed.', 'success');
+    await loadAdminDashboard();
+  } catch (error) {
+    showAdminMessage(error.message);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function addAdminBan(ban) {
@@ -1368,10 +1743,19 @@ function addTournamentAdminCard(tournament) {
   const title = document.createElement('strong');
   title.textContent = tournament.name;
   const description = document.createElement('span');
-  description.textContent = `${tournamentFormatName(tournament.format)} · ${tournament.status} · ${tournament.entries.filter((entry) => entry.status === 'accepted').length}/${tournament.maxClans} clans`;
+  description.textContent = `${tournamentFormatName(tournament.format)} · ${tournament.published ? 'published' : 'draft'} · ${tournament.status} · ${tournament.entries.filter((entry) => entry.status === 'accepted').length}/${tournament.maxClans} clans`;
   titleBlock.append(title, description);
   heading.append(logo, titleBlock);
   card.append(heading);
+
+  if (!tournament.published && tournament.status === 'registration') {
+    const publish = document.createElement('button');
+    publish.className = 'button button-primary admin-submit';
+    publish.type = 'button';
+    publish.textContent = 'Publish tournament';
+    publish.addEventListener('click', () => publishTournament(tournament));
+    card.append(publish);
+  }
 
   const entriesHeading = document.createElement('h4');
   entriesHeading.className = 'tournament-subheading';
@@ -1387,7 +1771,7 @@ function addTournamentAdminCard(tournament) {
   }
   card.append(entriesHeading, entries);
 
-  if (tournament.status === 'registration') {
+  if (tournament.published && tournament.status === 'registration') {
     const accepted = tournament.entries.filter((entry) => entry.status === 'accepted');
     const pending = tournament.entries.some((entry) => entry.status === 'pending');
     if (tournament.drawMode === 'manual') {
@@ -1461,6 +1845,7 @@ async function loadTournamentDashboard() {
     ? 'Manage public site content, player accounts, and tournament operations. Only the owner can assign tournament administrators.'
     : 'Manage registrations, draws, match schedules, and results only for tournaments assigned to your account.';
   tournamentCreatePanel.hidden = currentUser.role !== 'owner';
+  manualClanPanel.hidden = currentUser.role !== 'owner';
   for (const panel of adminDashboard.querySelectorAll('.admin-panel:not(.tournament-admin-panel):not(.tournament-create-panel)')) {
     panel.hidden = !globalAdmin;
   }
@@ -1481,6 +1866,19 @@ async function reviewTournamentEntry(tournament, entry, action) {
     const outcome = { accept: 'accepted', decline: 'declined', remove: 'removed' }[action];
     showAdminMessage(`Clan registration ${outcome}.`, 'success');
     await Promise.all([loadTournamentDashboard(), loadPublicTournaments()]);
+  } catch (error) {
+    showAdminMessage(error.message);
+  }
+}
+
+async function publishTournament(tournament) {
+  try {
+    await requestApi(`/api/tournament-admin/${encodeURIComponent(tournament.id)}/publish`, {
+      method: 'POST',
+      body: '{}'
+    });
+    showAdminMessage(`${tournament.name} is now published and open for clan registrations.`, 'success');
+    await Promise.all([loadTournamentDashboard(), loadPublicTournaments(), loadHomepageNews()]);
   } catch (error) {
     showAdminMessage(error.message);
   }
@@ -1554,7 +1952,7 @@ async function createTournament(event) {
       body: JSON.stringify(body)
     });
     createTournamentForm.reset();
-    showAdminMessage('Tournament created. The assigned administrator can manage registrations and matches.', 'success');
+    showAdminMessage('Tournament created as a draft. Its assigned administrator must publish it before clans can register.', 'success');
     await Promise.all([loadAdminDashboard(), loadPublicTournaments()]);
   } catch (error) {
     showAdminMessage(error.message);
@@ -1569,6 +1967,7 @@ async function loadAdminDashboard() {
   adminDashboard.querySelector('.admin-heading > p').textContent =
     'Manage public site content, player accounts, and tournament operations. Only the owner can assign tournament administrators.';
   tournamentCreatePanel.hidden = currentUser.role !== 'owner';
+  manualClanPanel.hidden = currentUser.role !== 'owner';
   for (const panel of adminDashboard.querySelectorAll('.admin-panel:not(.tournament-admin-panel):not(.tournament-create-panel)')) {
     panel.hidden = false;
   }
@@ -1589,17 +1988,25 @@ async function loadAdminDashboard() {
   adminBanList.append(banLoading);
 
   try {
-    const [contentResult, usersResult, clansResult, bansResult, tournamentsResult, eventsResult] = await Promise.all([
+    const [contentResult, usersResult, clansResult, bansResult, tournamentsResult, eventsResult, clanOwnersResult, clanManagersResult] = await Promise.all([
       requestApi('/api/admin/site-content'),
       requestApi('/api/admin/users'),
       requestApi('/api/admin/clans'),
       requestApi('/api/admin/bans'),
       requestApi('/api/tournament-admin/tournaments'),
-      requestApi('/api/admin/events')
+      requestApi('/api/admin/events'),
+      currentUser.role === 'owner'
+        ? requestApi('/api/admin/clan-owners')
+        : Promise.resolve({ users: [] }),
+      requestApi('/api/admin/clan-managers')
     ]);
     renderTournamentAdminList(tournamentsResult.tournaments);
     renderAdminEvents(eventsResult.events);
-    if (currentUser.role === 'owner') updateTournamentManagerOptions(usersResult.users);
+    renderAdminClanManagers(clanManagersResult.clans);
+    if (currentUser.role === 'owner') {
+      updateTournamentManagerOptions(usersResult.users);
+      updateManualClanOwnerOptions(clanOwnersResult.users);
+    }
     renderEditableFields(contentResult.fields);
     adminBanList.replaceChildren();
     for (const ban of bansResult.bans) addAdminBan(ban);
@@ -1649,7 +2056,7 @@ async function createBan(event) {
     banDurationDays.value = '7';
     banDurationDays.disabled = false;
     showAdminMessage('Blacklist record added. It is public but does not restrict website access.', 'success');
-    await Promise.all([loadAdminDashboard(), loadPublicBlacklist()]);
+    await Promise.all([loadAdminDashboard(), loadPublicBlacklist(), loadHomepageNews()]);
   } catch (error) {
     showAdminMessage(error.message);
   } finally {
@@ -1666,7 +2073,7 @@ async function revokeBan(ban) {
       body: '{}'
     });
     showAdminMessage('Blacklist record revoked.', 'success');
-    await Promise.all([loadAdminDashboard(), loadPublicBlacklist()]);
+    await Promise.all([loadAdminDashboard(), loadPublicBlacklist(), loadHomepageNews()]);
   } catch (error) {
     showAdminMessage(error.message);
   }
@@ -1780,6 +2187,7 @@ siteContentForm.addEventListener('submit', async (event) => {
 });
 
 createClanForm.addEventListener('submit', createClan);
+manualClanForm.addEventListener('submit', createManualClan);
 createBanForm.addEventListener('submit', createBan);
 createTournamentForm.addEventListener('submit', createTournament);
 eventForm.addEventListener('submit', saveEvent);
@@ -1881,4 +2289,13 @@ loadPublicBlacklist().catch((error) => {
   status.className = 'blacklist-list-status';
   status.textContent = `Blacklist records could not be loaded: ${error.message}`;
   publicBlacklist.replaceChildren(status);
+});
+
+loadHomepageNews().catch((error) => {
+  renderHomeNews([{
+    category: 'TFOC updates',
+    title: 'Updates unavailable',
+    detail: error.message,
+    href: '#home'
+  }]);
 });

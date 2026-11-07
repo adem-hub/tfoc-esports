@@ -217,6 +217,182 @@ a {
   margin-top: 34px;
 }
 
+.home-news {
+  width: min(810px, 100%);
+  margin-top: 25px;
+}
+
+.home-news-heading,
+.home-news-controls {
+  display: flex;
+  align-items: center;
+}
+
+.home-news-heading {
+  justify-content: space-between;
+  margin-bottom: 8px;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+.home-news-controls {
+  gap: 5px;
+}
+
+.home-news-controls button {
+  width: 28px;
+  height: 25px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(10, 10, 11, 0.3);
+  color: #fff;
+  cursor: pointer;
+}
+
+.home-news-controls button:hover,
+.home-news-controls button:focus-visible {
+  background: #fff;
+  color: var(--ink);
+}
+
+.home-news-viewport {
+  width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+  scroll-behavior: smooth;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain;
+}
+
+.home-news-viewport::-webkit-scrollbar {
+  display: none;
+}
+
+.home-news-track {
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+  gap: 9px;
+  padding-inline: max(0px, calc((100% - 260px) / 2));
+}
+
+.home-news-card {
+  position: relative;
+  display: flex;
+  min-height: 88px;
+  flex: 0 0 clamp(205px, 24vw, 260px);
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  padding: 12px 15px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.23);
+  background: rgba(15, 15, 16, 0.5);
+  color: #fff;
+  isolation: isolate;
+  scroll-snap-align: center;
+  transition: color 250ms ease, border-color 250ms ease, opacity 250ms ease;
+}
+
+.home-news-card::after {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: linear-gradient(100deg, rgba(10, 10, 11, 0.68), rgba(10, 10, 11, 0.34));
+  content: "";
+  transition: background 250ms ease;
+}
+
+.home-news-background {
+  position: absolute;
+  z-index: -2;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.38;
+  transition: opacity 250ms ease, transform 500ms ease;
+}
+
+.home-news-card:hover .home-news-background,
+.home-news-card:focus-visible .home-news-background {
+  opacity: 0.52;
+  transform: scale(1.05);
+}
+
+.home-news-card.is-focused .home-news-background {
+  opacity: 0.32;
+}
+
+.home-news-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+}
+
+.home-news-card:not(.is-focused) {
+  opacity: 0.76;
+}
+
+.home-news-card.is-focused {
+  border-color: #fff;
+  color: #121212;
+  opacity: 1;
+}
+
+.home-news-card.is-focused::after {
+  background: linear-gradient(100deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.72));
+}
+
+.home-news-card:not(.is-focused)::after {
+  background: linear-gradient(100deg, rgba(10, 10, 11, 0.72), rgba(10, 10, 11, 0.42));
+}
+
+.home-news-card:hover,
+.home-news-card:focus-visible {
+  border-color: #fff;
+  opacity: 1;
+}
+
+.home-news-card > span {
+  color: #ff6c74;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.home-news-card.is-focused > span {
+  color: var(--red);
+}
+
+.home-news-card strong {
+  overflow: hidden;
+  font-family: var(--display);
+  font-size: 20px;
+  line-height: 1;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.home-news-card small {
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-news-card.is-focused small {
+  color: #666;
+}
+
 .button {
   display: inline-flex;
   min-height: 52px;
@@ -1171,6 +1347,58 @@ a {
   padding: 10px 7px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   overflow-wrap: anywhere;
+}
+
+.clan-roster-edit-input {
+  width: 100%;
+  min-width: 120px;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: #151516;
+  color: var(--paper);
+  font: inherit;
+}
+
+.clan-roster-edit-input::placeholder {
+  color: #858381;
+}
+
+.clan-manager-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.clan-manager-assignment {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 0.7fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 15px 0;
+  border-top: 1px solid var(--line);
+}
+
+.clan-manager-assignment:first-child {
+  border-top: 0;
+}
+
+.clan-manager-assignment-identity {
+  display: grid;
+  gap: 4px;
+}
+
+.clan-manager-assignment-identity span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.clan-manager-assignment select {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  background: #151516;
+  color: var(--paper);
+  font: inherit;
 }
 
 .clan-roster-table th {
@@ -2194,6 +2422,14 @@ a {
     font-size: 14px;
   }
 
+  .home-news {
+    width: min(100%, 520px);
+  }
+
+  .home-news-card {
+    flex-basis: min(240px, 72vw);
+  }
+
   .hero-bottom {
     right: 7%;
     left: 7%;
@@ -2482,6 +2718,11 @@ a {
   .clan-roster-table td {
     padding-right: 4px;
     padding-left: 4px;
+  }
+
+  .clan-manager-assignment {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
   }
 
   .admin-panel {
