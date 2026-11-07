@@ -2358,7 +2358,10 @@ function seedOwnerAccount(database, config) {
   if (database.prepare("SELECT 1 FROM users WHERE role = 'owner'").get()) {
     return;
   }
-  if (database.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) {
+  const existingUser = database.prepare('SELECT id FROM users WHERE email = ?').get(email);
+  if (existingUser) {
+    database.prepare("UPDATE users SET role = 'owner' WHERE id = ?").run(existingUser.id);
+    console.log(`Existing account ${email} was promoted to owner.`);
     return;
   }
   const providedPassword = process.env.TFOC_OWNER_PASSWORD || '';
