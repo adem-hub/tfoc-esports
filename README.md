@@ -33,9 +33,9 @@ The site and account API run together on Node.js 24 or newer. Account creation s
 
    Enter the account password when prompted. Input is hidden. The command checks the password against the account, and only works if an owner has not already been set. It never writes the password to configuration or source files.
 3. Sign out and sign back in to show the admin dashboard.
-4. In the dashboard, the owner can promote or remove admin access from player accounts. Admins can update public site text and manage player accounts, but cannot grant admin roles or remove the owner.
+4. In the dashboard, the owner can promote or remove site-wide admin access from player accounts, create tournaments, and assign tournament-specific administrators. Admins can update public site text and manage player accounts, but cannot grant admin roles or remove the owner.
 
-The dashboard edits public text only; it does not change the website's design, layout, or video/logo assets. Use normal text: HTML and scripts are always displayed as text, never executed.
+The site-content editor changes public text only; it does not change the website's design, layout, or video/logo assets. Use normal text: HTML and scripts are always displayed as text, never executed.
 
 ## Clan registration and rosters
 
@@ -44,6 +44,21 @@ The dashboard edits public text only; it does not change the website's design, l
 - Clan owners can edit the clan, invite existing players by username, remove members, or delete the clan. Invited players must accept to join and may decline instead.
 - Clan owners and invited players explicitly consent before their username and player ID appear on the public roster. Phone numbers and encrypted device serials are never included in public clan data.
 - Players can belong to one clan at a time. Members can leave; the owner must delete the clan to remove their own membership.
+
+## Tournaments
+
+- The site owner creates tournaments with a logo, name, organizers, clan capacity, and a competition system: league (round robin), single elimination, or groups followed by elimination. League capacity is limited to 16 clans; other formats support up to 32.
+- When creating a tournament, the owner assigns an existing player as its tournament administrator. That role applies only to the selected tournament and does not grant site-wide admin access.
+- Owners of approved clans can register them while sign-up is open. The assigned tournament administrator can accept, decline, or remove registrations before the draw.
+- Once all pending registrations are reviewed, the administrator creates a random draw or sets the manual draw order. The site generates fixtures, including group rounds and knockout progression.
+- The tournament administrator can set match times and save scores. Public tournament pages show accepted clans, match schedules and results, and standings.
+- Tournament posters, match-schedule posters, and standings posters can each be downloaded as PNG images from the public tournament page.
+
+## Community events
+
+- The owner and site-wide admins can publish public event stories with a title, written description, and PNG/JPEG picture.
+- Event descriptions are plain text. Pictures may be square, landscape, or portrait, between 64 and 2400 pixels, up to 1 MB.
+- Admins can edit an event's title and description while keeping its current picture, replace the picture, or delete the event.
 
 ## Public player blacklist
 

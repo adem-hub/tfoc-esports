@@ -30,6 +30,8 @@
       <a class="navigation-link" href="#home">Home</a>
       <a class="navigation-link" href="#about">About</a>
       <a class="navigation-link" href="#clans">Clans</a>
+      <a class="navigation-link" href="#tournaments">Tournaments</a>
+      <a class="navigation-link" href="#events">Events</a>
       <a class="navigation-link" href="#games">Our focus</a>
       <a class="navigation-link" href="#rules">Rules</a>
       <a class="navigation-link" href="#blacklist">Blacklist</a>
@@ -89,11 +91,41 @@
       </div>
     </section>
 
+    <section class="tournaments-section" id="tournaments" aria-labelledby="tournaments-title">
+      <div class="section-wrap">
+        <div class="tournaments-heading">
+          <div>
+            <div class="section-kicker"><span>03</span> TFOC COMPETITION</div>
+            <h2 id="tournaments-title">THE ROAD<br><span>TO VICTORY.</span></h2>
+          </div>
+          <p>Follow the draw, match schedule, live scores, and standings. Clan owners can register their approved clan for an open tournament.</p>
+        </div>
+        <div class="public-tournament-list" id="public-tournament-list" aria-live="polite">
+          <p class="tournament-list-status">Loading tournaments…</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="events-section" id="events" aria-labelledby="events-title">
+      <div class="section-wrap">
+        <div class="events-heading">
+          <div>
+            <div class="section-kicker"><span>04</span> TFOC COMMUNITY</div>
+            <h2 id="events-title">EVENTS &amp;<br><span>STORIES.</span></h2>
+          </div>
+          <p>Highlights, announcements, and stories from the TFOC community.</p>
+        </div>
+        <div class="public-event-list" id="public-event-list" aria-live="polite">
+          <p class="event-list-status">Loading events…</p>
+        </div>
+      </div>
+    </section>
+
     <section class="focus-section" id="games">
       <div class="section-wrap">
         <div class="focus-heading">
           <div>
-            <div class="section-kicker"><span>02</span> <span data-site-content="focus.kicker">THE TFOC SPIRIT</span></div>
+            <div class="section-kicker"><span>05</span> <span data-site-content="focus.kicker">THE TFOC SPIRIT</span></div>
             <h2><span data-site-content="focus.titleFirst">BUILT AROUND</span><br><span data-site-content="focus.titleSecond">THE GAME.</span></h2>
           </div>
           <p data-site-content="focus.description">More than a match. A place to connect, improve, and represent.</p>
@@ -127,7 +159,7 @@
     <section class="rules-section" id="rules" lang="ar" dir="rtl" aria-labelledby="rules-title">
       <div class="section-wrap">
         <div class="rules-heading">
-          <div class="section-kicker"><span>04</span> قوانين البطولة</div>
+          <div class="section-kicker"><span>06</span> قوانين البطولة</div>
           <h2 id="rules-title">اللعب النظيف.<br><span>احترام للجميع.</span></h2>
           <p>يرجى قراءة القوانين التالية والالتزام بها طوال المنافسة. تسري هذه القواعد على اللاعبين والقادة والإداريين.</p>
         </div>
@@ -220,7 +252,7 @@
       <div class="section-wrap">
         <div class="blacklist-heading">
           <div>
-            <div class="section-kicker"><span>05</span> COMMUNITY NOTICE</div>
+            <div class="section-kicker"><span>07</span> COMMUNITY NOTICE</div>
             <h2 id="blacklist-title">PLAYER<br><span>BLACKLIST.</span></h2>
           </div>
           <p>Current disciplinary records published by TFOC administrators. Blacklist entries are public records only and do not restrict access to this website. Device serial numbers are kept private.</p>
@@ -234,7 +266,7 @@
     <section class="community section-wrap" id="community">
       <img class="community-logo" src="Logo.jpg" alt="" width="960" height="960" loading="lazy">
       <div class="community-copy">
-        <div class="section-kicker"><span>03</span> <span data-site-content="community.kicker">YOUR NEXT MATCH STARTS HERE</span></div>
+        <div class="section-kicker"><span>08</span> <span data-site-content="community.kicker">YOUR NEXT MATCH STARTS HERE</span></div>
         <h2><span data-site-content="community.titleFirst">READY TO</span><br><span data-site-content="community.titleSecond">JOIN US?</span></h2>
         <p data-site-content="community.description">Come meet the community and find your place in the game.</p>
         <a class="button button-primary" href="#account"><span data-site-content="community.join">Create your account</span> <span aria-hidden="true">↗</span></a>
@@ -253,7 +285,7 @@
     <section class="account-section" id="account">
       <div class="account-layout">
         <div class="account-intro">
-          <div class="section-kicker"><span>04</span> YOUR PLACE IN TFOC</div>
+          <div class="section-kicker"><span>09</span> YOUR PLACE IN TFOC</div>
           <h2>JOIN THE<br><span>COMMUNITY.</span></h2>
           <p data-site-content="account.description">Create a player account with your email, player ID, and WhatsApp number. Your WhatsApp number is collected for contact only; no verification is required.</p>
           <p class="privacy-note">Your device serial number is encrypted before it is stored. Your WhatsApp number must be in international format, for example +21612345678.</p>
@@ -333,6 +365,7 @@
             </dl>
             <button class="button button-quiet account-signout" id="signout-button" type="button">Sign out</button>
             <a class="button button-primary admin-entry" id="open-admin-dashboard" href="#admin-dashboard" hidden>Open admin dashboard <span aria-hidden="true">↗</span></a>
+            <a class="button button-primary admin-entry" id="open-tournament-dashboard" href="#admin-dashboard" hidden>Manage my tournaments <span aria-hidden="true">↗</span></a>
             <div class="clan-manager" id="clan-manager" hidden>
               <div class="clan-manager-heading">
                 <span>YOUR CLAN</span>
@@ -381,6 +414,87 @@
           <h2 id="admin-title">SITE<br><span>CONTROL.</span></h2>
           <p>Manage player accounts and update public site text. Only the owner can grant or revoke administrator access.</p>
           <div class="account-message admin-message" id="admin-message" role="status" aria-live="polite" hidden></div>
+        </div>
+        <div class="admin-panel tournament-create-panel" id="tournament-create-panel" hidden>
+          <div class="admin-panel-heading">
+            <h3>Create tournament</h3>
+            <p>Set the tournament format, clan capacity, draw style, organizers, and tournament-only manager.</p>
+          </div>
+          <form id="create-tournament-form" class="admin-form">
+            <label class="form-field">
+              <span>Tournament name</span>
+              <input name="name" type="text" minlength="3" maxlength="64" required>
+            </label>
+            <label class="form-field">
+              <span>Tournament logo</span>
+              <input name="logo" type="file" accept="image/png,image/jpeg" required>
+              <small>Square PNG or JPEG, 64–1024 pixels, up to 512 KB.</small>
+            </label>
+            <label class="form-field">
+              <span>Organizers</span>
+              <input name="organizers" type="text" minlength="2" maxlength="160" placeholder="Names or organization" required>
+            </label>
+            <label class="form-field">
+              <span>Competition system</span>
+              <select name="format" required>
+                <option value="league">League · round robin</option>
+                <option value="elimination">Single elimination</option>
+                <option value="groups_elimination">Groups + elimination</option>
+              </select>
+            </label>
+            <label class="form-field">
+              <span>Maximum clans</span>
+              <input name="maxClans" type="number" min="2" max="32" value="8" required>
+              <small>League tournaments allow up to 16 clans.</small>
+            </label>
+            <label class="form-field">
+              <span>Draw style</span>
+              <select name="drawMode" required>
+                <option value="random">Random draw</option>
+                <option value="manual">Manual draw</option>
+              </select>
+            </label>
+            <label class="form-field">
+              <span>Tournament administrator</span>
+              <select name="managerId" id="tournament-manager-user" required></select>
+              <small>This player can manage this tournament only.</small>
+            </label>
+            <button class="button button-primary admin-submit" type="submit">Create tournament</button>
+          </form>
+        </div>
+        <div class="admin-panel tournament-admin-panel" id="tournament-admin-panel">
+          <div class="admin-panel-heading">
+            <h3>Tournament operations</h3>
+            <p>Review clan registrations, create the draw, and manage the match schedule and scores.</p>
+          </div>
+          <div class="tournament-admin-list" id="tournament-admin-list" aria-live="polite"></div>
+        </div>
+        <div class="admin-panel event-admin-panel">
+          <div class="admin-panel-heading">
+            <h3>Publish an event</h3>
+            <p>Add a picture, title, and written event story. Events are visible to everyone as soon as they are published.</p>
+          </div>
+          <form id="event-form" class="admin-form">
+            <input id="event-edit-id" name="eventId" type="hidden">
+            <label class="form-field">
+              <span>Event title</span>
+              <input name="title" type="text" minlength="3" maxlength="100" required>
+            </label>
+            <label class="form-field">
+              <span>Event picture</span>
+              <input id="event-image" name="image" type="file" accept="image/png,image/jpeg">
+              <small>PNG or JPEG, 64–2400 pixels, up to 1 MB. Leave empty when editing to keep the current picture.</small>
+            </label>
+            <label class="form-field">
+              <span>Event description</span>
+              <textarea name="description" minlength="10" maxlength="5000" rows="6" required></textarea>
+            </label>
+            <div class="event-form-actions">
+              <button id="event-submit" class="button button-primary admin-submit" type="submit">Publish event</button>
+              <button id="event-cancel-edit" class="admin-action-button" type="button" hidden>Cancel edit</button>
+            </div>
+          </form>
+          <div class="admin-event-list" id="admin-event-list" aria-live="polite"></div>
         </div>
         <div class="admin-panel">
           <div class="admin-panel-heading">

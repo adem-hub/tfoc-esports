@@ -30,6 +30,7 @@ const accountForms = document.querySelectorAll('[data-account-panel]');
 const accountProfile = document.querySelector('#account-profile');
 const adminDashboard = document.querySelector('#admin-dashboard');
 const adminEntry = document.querySelector('#open-admin-dashboard');
+const tournamentAdminEntry = document.querySelector('#open-tournament-dashboard');
 const adminMessage = document.querySelector('#admin-message');
 const siteContentForm = document.querySelector('#site-content-form');
 const siteContentKey = document.querySelector('#site-content-key');
@@ -37,6 +38,17 @@ const siteContentValue = document.querySelector('#site-content-value');
 const adminUserList = document.querySelector('#admin-user-list');
 const adminClanList = document.querySelector('#admin-clan-list');
 const adminBanList = document.querySelector('#admin-ban-list');
+const tournamentCreatePanel = document.querySelector('#tournament-create-panel');
+const createTournamentForm = document.querySelector('#create-tournament-form');
+const tournamentManagerUser = document.querySelector('#tournament-manager-user');
+const tournamentAdminPanel = document.querySelector('#tournament-admin-panel');
+const tournamentAdminList = document.querySelector('#tournament-admin-list');
+const eventForm = document.querySelector('#event-form');
+const eventEditId = document.querySelector('#event-edit-id');
+const eventImageInput = document.querySelector('#event-image');
+const eventSubmit = document.querySelector('#event-submit');
+const eventCancelEdit = document.querySelector('#event-cancel-edit');
+const adminEventList = document.querySelector('#admin-event-list');
 const createBanForm = document.querySelector('#create-ban-form');
 const banDurationDays = document.querySelector('#ban-duration-days');
 const permanentBan = document.querySelector('#ban-permanent');
@@ -47,7 +59,10 @@ const incomingClanInvitations = document.querySelector('#incoming-clan-invitatio
 const clanInvitations = document.querySelector('#clan-invitations');
 const publicClanList = document.querySelector('#public-clan-list');
 const publicBlacklist = document.querySelector('#public-blacklist');
+const publicTournamentList = document.querySelector('#public-tournament-list');
+const publicEventList = document.querySelector('#public-event-list');
 let currentUser = null;
+let currentClan = null;
 let editableSiteFields = [];
 
 function showMessage(message, kind = 'error') {
@@ -97,6 +112,7 @@ function showPanel(panel) {
   accountProfile.hidden = true;
   clanManager.hidden = true;
   adminEntry.hidden = true;
+  tournamentAdminEntry.hidden = true;
   adminDashboard.hidden = true;
 
   for (const form of accountForms) {
@@ -111,6 +127,7 @@ function showPanel(panel) {
 
 function showProfile(user) {
   currentUser = user;
+  currentClan = null;
   accountTabs.hidden = true;
   for (const form of accountForms) form.hidden = true;
   document.querySelector('#profile-username').textContent = user.username;
@@ -118,10 +135,12 @@ function showProfile(user) {
   document.querySelector('#profile-player-id').textContent = user.playerId;
   document.querySelector('#profile-whatsapp').textContent = user.whatsappPhone;
   adminEntry.hidden = user.role !== 'admin' && user.role !== 'owner';
+  tournamentAdminEntry.hidden = true;
   accountProfile.hidden = false;
   clanManager.hidden = false;
   showMessage(`Your account is ready. Access: ${user.role}.`, 'success');
   loadMyClan();
+  loadTournamentAdminAccess();
 }
 
 function renderSiteContent(content) {
@@ -242,6 +261,487 @@ function renderPublicClans(clans) {
 async function loadPublicClans() {
   const result = await requestApi('/api/clans');
   renderPublicClans(result.clans);
+}
+
+function tournamentFormatName(format) {
+  return {
+    league: 'League · round robin',
+    elimination: 'Single elimination',
+    groups_elimination: 'Groups + elimination'
+  }[format] || format;
+}
+
+function tournamentStageName(match) {
+  if (match.stage === 'league') return `League · round ${match.round}`;
+  if (match.stage === 'group') return `Group ${match.group} · match ${match.slot}`;
+  if (match.stage === 'elimination') return match.round === 1 ? `Elimination · round 1 · match ${match.slot}` : `Elimination · round ${match.round} · match ${match.slot}`;
+  if (match.stage === 'playoff') return match.round === 1 ? `Semi-final ${match.slot}` : 'Final';
+  return 'Match';
+}
+
+function createTournamentTable(tournament) {
+  const table = document.createElement('table');
+  table.className = 'tournament-standings-table';
+  const head = document.createElement('thead');
+  const header = document.createElement('tr');
+  for (const title of ['#', 'Clan', 'P', 'W', 'D', 'L', 'GD', 'Pts']) {
+    const cell = document.createElement('th');
+    cell.scope = 'col';
+    cell.textContent = title;
+    header.append(cell);
+  }
+  head.append(header);
+  table.append(head);
+  const body = document.createElement('tbody');
+  for (const [index, item] of tournament.standings.entries()) {
+    const row = document.createElement('tr');
+    const difference = item.goalsFor - item.goalsAgainst;
+    for (const value of [
+      String(index + 1),
+      `[${item.clanTag}] ${item.clanName}`,
+      String(item.played),
+      String(item.wins),
+      String(item.draws),
+      String(item.losses),
+      difference > 0 ? `+${difference}` : String(difference),
+      String(item.points)
+    ]) {
+      const cell = document.createElement('td');
+      cell.textContent = value;
+      row.append(cell);
+    }
+    body.append(row);
+  }
+  table.append(body);
+  return table;
+}
+
+function createTournamentMatchList(tournament, publicView = true) {
+  const list = document.createElement('div');
+  list.className = 'tournament-match-list';
+  if (!tournament.matches.length) {
+    const empty = document.createElement('p');
+    empty.className = 'tournament-list-status';
+    empty.textContent = 'The schedule will appear after the tournament administrator completes the draw.';
+    list.append(empty);
+    return list;
+  }
+  for (const match of tournament.matches) {
+    const card = document.createElement('article');
+    card.className = 'tournament-match-card';
+    const details = document.createElement('div');
+    details.className = 'tournament-match-details';
+    const phase = document.createElement('span');
+    phase.className = 'tournament-match-phase';
+    phase.textContent = tournamentStageName(match);
+    const teams = document.createElement('strong');
+    const home = match.home ? `[${match.home.tag}] ${match.home.name}` : 'TBD';
+    const away = match.away ? `[${match.away.tag}] ${match.away.name}` : 'TBD';
+    teams.textContent = `${home}  ${match.homeScore === null ? 'vs' : `${match.homeScore} - ${match.awayScore}`}  ${away}`;
+    const date = document.createElement('small');
+    date.textContent = match.scheduledAt ? formatBlacklistDate(match.scheduledAt) : 'Time to be announced';
+    details.append(phase, teams, date);
+    card.append(details);
+    if (!publicView) card.dataset.matchId = match.id;
+    list.append(card);
+  }
+  return list;
+}
+
+function publicTournamentCard(tournament) {
+  const card = document.createElement('article');
+  card.className = 'public-tournament-card';
+  const heading = document.createElement('div');
+  heading.className = 'public-tournament-heading';
+  const logo = document.createElement('img');
+  logo.className = 'public-tournament-logo';
+  logo.src = tournament.logoUrl;
+  logo.alt = `${tournament.name} logo`;
+  logo.width = 100;
+  logo.height = 100;
+  const identity = document.createElement('div');
+  identity.className = 'public-tournament-identity';
+  const status = document.createElement('span');
+  status.className = `tournament-status tournament-status-${tournament.status}`;
+  status.textContent = tournament.status === 'registration' ? 'Registration open' : tournament.status === 'completed' ? 'Completed' : 'Draw complete';
+  const name = document.createElement('h3');
+  name.textContent = tournament.name;
+  const summary = document.createElement('p');
+  summary.textContent = `${tournamentFormatName(tournament.format)} · ${tournament.entries.length}/${tournament.maxClans} clans`;
+  const organizers = document.createElement('p');
+  organizers.textContent = `Organizers: ${tournament.organizers}`;
+  identity.append(status, name, summary, organizers);
+  heading.append(logo, identity);
+
+  const actions = document.createElement('div');
+  actions.className = 'tournament-poster-actions';
+  for (const [kind, label] of [
+    ['tournament', 'Tournament poster'],
+    ['schedule', 'Match schedule poster'],
+    ['standings', 'Standings poster']
+  ]) {
+    const button = document.createElement('button');
+    button.className = 'admin-action-button';
+    button.type = 'button';
+    button.textContent = `Export ${label}`;
+    button.addEventListener('click', () => exportTournamentPoster(tournament, kind)
+      .catch((error) => showMessage(`Poster export failed: ${error.message}`)));
+    actions.append(button);
+  }
+
+  const entryArea = document.createElement('div');
+  entryArea.className = 'tournament-registration';
+  if (!currentUser) {
+    const signIn = document.createElement('a');
+    signIn.className = 'button button-quiet';
+    signIn.href = '#account';
+    signIn.textContent = 'Sign in to register your clan';
+    entryArea.append(signIn);
+  } else if (['pending', 'accepted'].includes(tournament.myEntryStatus)) {
+    const statusText = document.createElement('p');
+    statusText.className = 'tournament-entry-status';
+    statusText.textContent = `Your clan: ${tournament.myEntryStatus}`;
+    entryArea.append(statusText);
+  } else if (tournament.status === 'registration' && currentClan?.memberRole === 'owner'
+      && currentClan.approvalStatus === 'approved') {
+    const register = document.createElement('button');
+    register.className = 'button button-primary';
+    register.type = 'button';
+    register.textContent = tournament.myEntryStatus ? 'Register your clan again' : 'Register your clan';
+    register.addEventListener('click', () => registerClanForTournament(tournament));
+    entryArea.append(register);
+  } else if (tournament.myEntryStatus) {
+    const statusText = document.createElement('p');
+    statusText.className = 'tournament-entry-status';
+    statusText.textContent = `Your clan registration: ${tournament.myEntryStatus}`;
+    entryArea.append(statusText);
+  } else if (tournament.status === 'registration') {
+    const hint = document.createElement('p');
+    hint.className = 'tournament-entry-status';
+    hint.textContent = 'An owner of an approved clan can register here.';
+    entryArea.append(hint);
+  }
+
+  const matchesHeading = document.createElement('h4');
+  matchesHeading.className = 'tournament-subheading';
+  matchesHeading.textContent = 'MATCH SCHEDULE & SCORES';
+  const matches = createTournamentMatchList(tournament);
+  const standingsHeading = document.createElement('h4');
+  standingsHeading.className = 'tournament-subheading';
+  standingsHeading.textContent = 'CLAN STANDINGS';
+  const standings = tournament.standings.length
+    ? createTournamentTable(tournament)
+    : Object.assign(document.createElement('p'), {
+      className: 'tournament-list-status',
+      textContent: 'Standings will appear after clans are accepted.'
+    });
+  card.append(heading, actions, entryArea, matchesHeading, matches, standingsHeading, standings);
+  return card;
+}
+
+function renderPublicTournaments(tournaments) {
+  publicTournamentList.replaceChildren();
+  if (!tournaments.length) {
+    const empty = document.createElement('p');
+    empty.className = 'tournament-list-status';
+    empty.textContent = 'No tournaments have been announced yet.';
+    publicTournamentList.append(empty);
+    return;
+  }
+  for (const tournament of tournaments) publicTournamentList.append(publicTournamentCard(tournament));
+}
+
+async function loadPublicTournaments() {
+  const result = await requestApi('/api/tournaments');
+  renderPublicTournaments(result.tournaments);
+}
+
+function createEventCard(event, isAdmin = false) {
+  const card = document.createElement('article');
+  card.className = 'event-card';
+  const image = document.createElement('img');
+  image.className = 'event-picture';
+  image.src = event.imageUrl;
+  image.alt = `${event.title} event picture`;
+  image.loading = 'lazy';
+  image.width = 1200;
+  image.height = 675;
+  const body = document.createElement('div');
+  body.className = 'event-card-body';
+  const date = document.createElement('time');
+  date.className = 'event-date';
+  date.dateTime = event.createdAt;
+  date.textContent = formatBlacklistDate(event.createdAt);
+  const title = document.createElement('h3');
+  title.textContent = event.title;
+  const description = document.createElement('p');
+  description.className = 'event-description';
+  description.textContent = event.description;
+  body.append(date, title, description);
+  card.append(image, body);
+
+  if (isAdmin) {
+    const actions = document.createElement('div');
+    actions.className = 'event-admin-actions';
+    const edit = document.createElement('button');
+    edit.className = 'admin-action-button';
+    edit.type = 'button';
+    edit.textContent = 'Edit event';
+    edit.addEventListener('click', () => beginEditEvent(event));
+    const remove = document.createElement('button');
+    remove.className = 'admin-action-button admin-action-danger';
+    remove.type = 'button';
+    remove.textContent = 'Delete event';
+    remove.addEventListener('click', () => deleteEvent(event));
+    actions.append(edit, remove);
+    card.append(actions);
+  }
+  return card;
+}
+
+function renderPublicEvents(events) {
+  publicEventList.replaceChildren();
+  if (!events.length) {
+    const empty = document.createElement('p');
+    empty.className = 'event-list-status';
+    empty.textContent = 'No events have been published yet.';
+    publicEventList.append(empty);
+    return;
+  }
+  for (const event of events) publicEventList.append(createEventCard(event));
+}
+
+async function loadPublicEvents() {
+  const result = await requestApi('/api/events');
+  renderPublicEvents(result.events);
+}
+
+function renderAdminEvents(events) {
+  adminEventList.replaceChildren();
+  if (!events.length) {
+    const empty = document.createElement('p');
+    empty.className = 'admin-loading';
+    empty.textContent = 'No events published yet.';
+    adminEventList.append(empty);
+    return;
+  }
+  for (const event of events) adminEventList.append(createEventCard(event, true));
+}
+
+function beginEditEvent(event) {
+  eventEditId.value = event.id;
+  eventForm.elements.namedItem('title').value = event.title;
+  eventForm.elements.namedItem('description').value = event.description;
+  eventImageInput.value = '';
+  eventImageInput.required = false;
+  eventSubmit.textContent = 'Save event changes';
+  eventCancelEdit.hidden = false;
+  eventForm.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  eventForm.elements.namedItem('title').focus();
+}
+
+function resetEventForm() {
+  eventForm.reset();
+  eventEditId.value = '';
+  eventImageInput.required = true;
+  eventSubmit.textContent = 'Publish event';
+  eventCancelEdit.hidden = true;
+}
+
+async function readEventImage(file) {
+  if (!(file instanceof File) || !['image/png', 'image/jpeg'].includes(file.type)) {
+    throw new Error('Choose a PNG or JPEG event picture.');
+  }
+  if (file.size > 1024 * 1024) throw new Error('The event picture must be under 1 MB.');
+  const bitmap = await createImageBitmap(file);
+  try {
+    if (bitmap.width < 64 || bitmap.height < 64 || bitmap.width > 2400 || bitmap.height > 2400) {
+      throw new Error('Use an event picture between 64 × 64 and 2400 × 2400 pixels.');
+    }
+  } finally {
+    bitmap.close();
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener('load', () => resolve(reader.result));
+    reader.addEventListener('error', () => reject(new Error('The event picture could not be read.')));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function saveEvent(event) {
+  event.preventDefault();
+  setFormBusy(eventForm, true);
+  try {
+    const body = formValues(eventForm);
+    const eventId = body.eventId;
+    const imageFile = eventImageInput.files[0];
+    delete body.eventId;
+    delete body.image;
+    if (imageFile) body.imageDataUrl = await readEventImage(imageFile);
+    else if (!eventId) throw new Error('Choose a picture for the event.');
+    const result = await requestApi(eventId
+      ? `/api/admin/events/${encodeURIComponent(eventId)}`
+      : '/api/admin/events', {
+      method: eventId ? 'PUT' : 'POST',
+      body: JSON.stringify(body)
+    });
+    resetEventForm();
+    showAdminMessage(eventId ? 'Event updated.' : 'Event published.', 'success');
+    renderAdminEvents(await requestApi('/api/admin/events').then((response) => response.events));
+    await loadPublicEvents();
+  } catch (error) {
+    showAdminMessage(error.message);
+  } finally {
+    setFormBusy(eventForm, false);
+  }
+}
+
+async function deleteEvent(event) {
+  if (!window.confirm(`Permanently delete the event “${event.title}”?`)) return;
+  try {
+    await requestApi(`/api/admin/events/${encodeURIComponent(event.id)}`, {
+      method: 'DELETE',
+      body: '{}'
+    });
+    if (eventEditId.value === event.id) resetEventForm();
+    showAdminMessage('Event deleted.', 'success');
+    const result = await requestApi('/api/admin/events');
+    renderAdminEvents(result.events);
+    await loadPublicEvents();
+  } catch (error) {
+    showAdminMessage(error.message);
+  }
+}
+
+async function registerClanForTournament(tournament) {
+  try {
+    await requestApi(`/api/tournaments/${encodeURIComponent(tournament.id)}/register`, {
+      method: 'POST',
+      body: '{}'
+    });
+    showMessage(`Your clan registration for ${tournament.name} was sent for approval.`, 'success');
+    await loadPublicTournaments();
+    await loadTournamentAdminAccess();
+  } catch (error) {
+    showMessage(error.message);
+  }
+}
+
+async function exportTournamentPoster(tournament, kind) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1080;
+  canvas.height = 1350;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Your browser could not create the poster canvas.');
+  const background = context.createLinearGradient(0, 0, canvas.width, canvas.height);
+  background.addColorStop(0, '#19191b');
+  background.addColorStop(0.58, '#101011');
+  background.addColorStop(1, '#281014');
+  context.fillStyle = background;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = '#e51d2a';
+  context.fillRect(0, 0, 18, canvas.height);
+  context.globalAlpha = 0.15;
+  context.beginPath();
+  context.moveTo(790, 0);
+  context.lineTo(1080, 0);
+  context.lineTo(1080, 530);
+  context.closePath();
+  context.fill();
+  context.globalAlpha = 1;
+
+  const image = new Image();
+  image.src = tournament.logoUrl;
+  await new Promise((resolve, reject) => {
+    image.addEventListener('load', resolve, { once: true });
+    image.addEventListener('error', () => reject(new Error('Tournament logo could not be loaded.')), { once: true });
+  });
+  context.save();
+  context.beginPath();
+  context.roundRect(72, 72, 150, 150, 26);
+  context.clip();
+  context.drawImage(image, 72, 72, 150, 150);
+  context.restore();
+
+  context.fillStyle = '#f3f1ed';
+  context.font = '700 25px Arial, sans-serif';
+  context.fillText('TFOC ESPORTS  /  TOURNAMENT SERIES', 260, 121);
+  context.fillStyle = '#e51d2a';
+  context.font = '700 22px Arial, sans-serif';
+  context.fillText(kind === 'schedule' ? 'OFFICIAL MATCH SCHEDULE' : kind === 'standings' ? 'OFFICIAL STANDINGS' : 'OFFICIAL TOURNAMENT', 76, 300);
+  context.fillStyle = '#f3f1ed';
+  context.font = '900 76px Arial, sans-serif';
+  const words = tournament.name.split(/\s+/);
+  let titleLine = '';
+  let titleY = 400;
+  for (const word of words) {
+    const candidate = titleLine ? `${titleLine} ${word}` : word;
+    if (context.measureText(candidate).width > 900 && titleLine) {
+      context.fillText(titleLine, 76, titleY);
+      titleY += 92;
+      titleLine = word;
+    } else titleLine = candidate;
+  }
+  if (titleLine) context.fillText(titleLine, 76, titleY);
+  const bodyTop = Math.max(510, titleY + 105);
+  context.fillStyle = '#a9a7a4';
+  context.font = '600 27px Arial, sans-serif';
+  context.fillText(`${tournamentFormatName(tournament.format).toUpperCase()}  ·  ${tournament.organizers}`, 78, bodyTop);
+  context.strokeStyle = 'rgba(255,255,255,.2)';
+  context.lineWidth = 2;
+  context.beginPath();
+  context.moveTo(76, bodyTop + 40);
+  context.lineTo(1000, bodyTop + 40);
+  context.stroke();
+
+  let rows;
+  if (kind === 'schedule') {
+    rows = tournament.matches.slice(0, 12).map((match) => {
+      const time = match.scheduledAt ? formatBlacklistDate(match.scheduledAt) : 'Time TBA';
+      const score = match.homeScore === null ? 'VS' : `${match.homeScore} - ${match.awayScore}`;
+      return [`${tournamentStageName(match).toUpperCase()}  ·  ${time}`, `${match.home ? `[${match.home.tag}] ${match.home.name}` : 'TBD'}   ${score}   ${match.away ? `[${match.away.tag}] ${match.away.name}` : 'TBD'}`];
+    });
+  } else if (kind === 'standings') {
+    rows = tournament.standings.slice(0, 12).map((team, index) => [
+      `${String(index + 1).padStart(2, '0')}  [${team.clanTag}] ${team.clanName}`,
+      `${team.played} played  ·  ${team.wins}W ${team.draws}D ${team.losses}L  ·  ${team.goalsFor - team.goalsAgainst >= 0 ? '+' : ''}${team.goalsFor - team.goalsAgainst} GD  ·  ${team.points} PTS`
+    ]);
+  } else {
+    rows = [
+      [`${tournament.entries.length} / ${tournament.maxClans} CLANS`, tournament.status === 'registration' ? 'REGISTRATION OPEN' : tournament.status.toUpperCase()],
+      ['ORGANIZERS', tournament.organizers],
+      ['COMPETITION FORMAT', tournamentFormatName(tournament.format).toUpperCase()],
+      ['DRAW', tournament.drawMode.toUpperCase()]
+    ];
+  }
+  let rowY = bodyTop + 104;
+  for (const [title, detail] of rows) {
+    if (rowY > 1190) break;
+    context.fillStyle = '#e51d2a';
+    context.fillRect(78, rowY - 25, 6, 74);
+    context.fillStyle = '#f3f1ed';
+    context.font = '700 27px Arial, sans-serif';
+    context.fillText(title.slice(0, 70), 105, rowY);
+    context.fillStyle = '#aaa8a5';
+    context.font = '500 22px Arial, sans-serif';
+    context.fillText(detail.slice(0, 90), 105, rowY + 38);
+    rowY += 105;
+  }
+  context.fillStyle = '#f3f1ed';
+  context.font = '800 22px Arial, sans-serif';
+  context.fillText('PLAY AS ONE.  RISE TOGETHER.', 78, 1285);
+  context.fillStyle = '#777674';
+  context.font = '500 18px Arial, sans-serif';
+  context.fillText('TUNISIAN FEDERATION OF CLANS', 78, 1318);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+  if (!blob) throw new Error('Poster image could not be generated.');
+  const url = URL.createObjectURL(blob);
+  const download = document.createElement('a');
+  download.href = url;
+  download.download = `${tournament.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${kind}.png`;
+  download.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function formatBlacklistDate(value) {
@@ -477,6 +977,7 @@ async function loadMyClan() {
 
   try {
     const result = await requestApi('/api/my-clans');
+    currentClan = result.clan;
     if (result.invitations.length) {
       clanInvitations.hidden = false;
       for (const invitation of result.invitations) {
@@ -490,6 +991,7 @@ async function loadMyClan() {
       myClanPanel.hidden = true;
       createClanForm.hidden = false;
     }
+    await loadPublicTournaments();
   } catch (error) {
     showMessage(error.message);
   }
@@ -756,9 +1258,320 @@ function addAdminBan(ban) {
   adminBanList.append(card);
 }
 
+function updateTournamentManagerOptions(users) {
+  tournamentManagerUser.replaceChildren();
+  for (const user of users) {
+    const option = document.createElement('option');
+    option.value = user.id;
+    option.textContent = `${user.username} · ${user.role}`;
+    tournamentManagerUser.append(option);
+  }
+  if (!users.length) {
+    const empty = document.createElement('option');
+    empty.value = '';
+    empty.textContent = 'No player accounts available';
+    tournamentManagerUser.append(empty);
+  } else if (currentUser && users.some((user) => user.id === currentUser.id)) {
+    tournamentManagerUser.value = currentUser.id;
+  }
+}
+
+function createTournamentEntryRow(tournament, entry) {
+  const row = document.createElement('div');
+  row.className = 'tournament-entry-row';
+  const clan = document.createElement('strong');
+  clan.textContent = `[${entry.clanTag}] ${entry.clanName}`;
+  const status = document.createElement('span');
+  status.className = `tournament-status tournament-status-${entry.status}`;
+  status.textContent = entry.status;
+  row.append(clan, status);
+  if (tournament.status === 'registration' && ['pending', 'accepted'].includes(entry.status)) {
+    const actions = document.createElement('div');
+    actions.className = 'admin-user-actions';
+    if (entry.status === 'pending') {
+      for (const [action, label] of [['accept', 'Accept'], ['decline', 'Decline']]) {
+        const button = document.createElement('button');
+        button.className = 'admin-action-button';
+        button.type = 'button';
+        button.textContent = label;
+        button.addEventListener('click', () => reviewTournamentEntry(tournament, entry, action));
+        actions.append(button);
+      }
+    }
+    const remove = document.createElement('button');
+    remove.className = 'admin-action-button admin-action-danger';
+    remove.type = 'button';
+    remove.textContent = 'Remove';
+    remove.addEventListener('click', () => reviewTournamentEntry(tournament, entry, 'remove'));
+    actions.append(remove);
+    row.append(actions);
+  }
+  return row;
+}
+
+function createTournamentMatchEditor(tournament, match) {
+  const form = document.createElement('form');
+  form.className = 'tournament-match-editor';
+  const title = document.createElement('strong');
+  title.textContent = tournamentStageName(match);
+  const teams = document.createElement('p');
+  teams.textContent = `${match.home ? `[${match.home.tag}] ${match.home.name}` : 'TBD'} vs ${match.away ? `[${match.away.tag}] ${match.away.name}` : 'TBD'}`;
+  const fields = document.createElement('div');
+  fields.className = 'tournament-score-fields';
+  const dateLabel = document.createElement('label');
+  dateLabel.className = 'form-field';
+  dateLabel.textContent = 'Scheduled time';
+  const date = document.createElement('input');
+  date.type = 'datetime-local';
+  if (match.scheduledAt) {
+    const localDate = new Date(match.scheduledAt);
+    localDate.setMinutes(localDate.getMinutes() - localDate.getTimezoneOffset());
+    date.value = localDate.toISOString().slice(0, 16);
+  }
+  dateLabel.append(date);
+  fields.append(dateLabel);
+  for (const [side, score] of [['Home score', match.homeScore], ['Away score', match.awayScore]]) {
+    const label = document.createElement('label');
+    label.className = 'form-field';
+    label.textContent = side;
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.min = '0';
+    input.max = '99';
+    input.step = '1';
+    input.value = score === null ? '' : String(score);
+    input.dataset.score = side.startsWith('Home') ? 'home' : 'away';
+    label.append(input);
+    fields.append(label);
+  }
+  const save = document.createElement('button');
+  save.className = 'admin-action-button';
+  save.type = 'submit';
+  save.textContent = 'Save match';
+  form.append(title, teams, fields, save);
+  form.addEventListener('submit', (event) => saveTournamentMatch(event, tournament, match));
+  return form;
+}
+
+function addTournamentAdminCard(tournament) {
+  const card = document.createElement('article');
+  card.className = 'tournament-admin-card';
+  const heading = document.createElement('div');
+  heading.className = 'admin-clan-identity';
+  const logo = document.createElement('img');
+  logo.className = 'admin-clan-logo';
+  logo.src = tournament.logoUrl;
+  logo.alt = `${tournament.name} logo`;
+  logo.width = 64;
+  logo.height = 64;
+  const titleBlock = document.createElement('div');
+  const title = document.createElement('strong');
+  title.textContent = tournament.name;
+  const description = document.createElement('span');
+  description.textContent = `${tournamentFormatName(tournament.format)} · ${tournament.status} · ${tournament.entries.filter((entry) => entry.status === 'accepted').length}/${tournament.maxClans} clans`;
+  titleBlock.append(title, description);
+  heading.append(logo, titleBlock);
+  card.append(heading);
+
+  const entriesHeading = document.createElement('h4');
+  entriesHeading.className = 'tournament-subheading';
+  entriesHeading.textContent = 'CLAN REGISTRATIONS';
+  const entries = document.createElement('div');
+  entries.className = 'tournament-entry-list';
+  for (const entry of tournament.entries) entries.append(createTournamentEntryRow(tournament, entry));
+  if (!tournament.entries.length) {
+    const empty = document.createElement('p');
+    empty.className = 'admin-loading';
+    empty.textContent = 'No clans have registered yet.';
+    entries.append(empty);
+  }
+  card.append(entriesHeading, entries);
+
+  if (tournament.status === 'registration') {
+    const accepted = tournament.entries.filter((entry) => entry.status === 'accepted');
+    const pending = tournament.entries.some((entry) => entry.status === 'pending');
+    if (tournament.drawMode === 'manual') {
+      const label = document.createElement('label');
+      label.className = 'form-field tournament-manual-order';
+      label.textContent = 'Manual draw order · enter every accepted clan tag, separated by commas';
+      const order = document.createElement('input');
+      order.type = 'text';
+      order.value = accepted.map((entry) => entry.clanTag).join(', ');
+      order.placeholder = 'ALPHA, BRAVO, CHARLIE';
+      label.append(order);
+      card.append(label);
+      card.dataset.manualOrder = 'true';
+      card._manualOrderInput = order;
+    }
+    const draw = document.createElement('button');
+    draw.className = 'button button-primary admin-submit';
+    draw.type = 'button';
+    draw.textContent = tournament.drawMode === 'random' ? 'Create random draw' : 'Create manual draw';
+    draw.disabled = pending || accepted.length < 2;
+    draw.addEventListener('click', () => createTournamentDraw(tournament, card._manualOrderInput));
+    card.append(draw);
+    if (pending) {
+      const note = document.createElement('p');
+      note.className = 'tournament-entry-status';
+      note.textContent = 'Review all pending registrations before creating the draw.';
+      card.append(note);
+    }
+  }
+  if (tournament.matches.length) {
+    const scheduleHeading = document.createElement('h4');
+    scheduleHeading.className = 'tournament-subheading';
+    scheduleHeading.textContent = 'SCHEDULE & SCORES';
+    const matches = document.createElement('div');
+    matches.className = 'tournament-match-editor-list';
+    for (const match of tournament.matches) matches.append(createTournamentMatchEditor(tournament, match));
+    card.append(scheduleHeading, matches);
+  }
+  tournamentAdminList.append(card);
+}
+
+function renderTournamentAdminList(tournaments) {
+  tournamentAdminList.replaceChildren();
+  if (!tournaments.length) {
+    const empty = document.createElement('p');
+    empty.className = 'admin-loading';
+    empty.textContent = currentUser?.role === 'owner'
+      ? 'No tournaments yet. Create one to start registrations.'
+      : 'You have not been assigned to manage a tournament.';
+    tournamentAdminList.append(empty);
+    return;
+  }
+  for (const tournament of tournaments) addTournamentAdminCard(tournament);
+}
+
+async function loadTournamentAdminAccess() {
+  if (!currentUser) return;
+  try {
+    const result = await requestApi('/api/tournament-admin/tournaments');
+    tournamentAdminEntry.hidden = currentUser.role !== 'owner' && result.tournaments.length === 0;
+  } catch (error) {
+    showMessage(error.message);
+  }
+}
+
+async function loadTournamentDashboard() {
+  if (!currentUser) return;
+  adminDashboard.hidden = false;
+  const globalAdmin = currentUser.role === 'owner' || currentUser.role === 'admin';
+  adminDashboard.querySelector('.admin-heading > p').textContent = globalAdmin
+    ? 'Manage public site content, player accounts, and tournament operations. Only the owner can assign tournament administrators.'
+    : 'Manage registrations, draws, match schedules, and results only for tournaments assigned to your account.';
+  tournamentCreatePanel.hidden = currentUser.role !== 'owner';
+  for (const panel of adminDashboard.querySelectorAll('.admin-panel:not(.tournament-admin-panel):not(.tournament-create-panel)')) {
+    panel.hidden = !globalAdmin;
+  }
+  try {
+    const result = await requestApi('/api/tournament-admin/tournaments');
+    renderTournamentAdminList(result.tournaments);
+  } catch (error) {
+    showAdminMessage(error.message);
+  }
+}
+
+async function reviewTournamentEntry(tournament, entry, action) {
+  try {
+    await requestApi(`/api/tournament-admin/${encodeURIComponent(tournament.id)}/entries/${encodeURIComponent(entry.id)}`, {
+      method: 'POST',
+      body: JSON.stringify({ action })
+    });
+    const outcome = { accept: 'accepted', decline: 'declined', remove: 'removed' }[action];
+    showAdminMessage(`Clan registration ${outcome}.`, 'success');
+    await Promise.all([loadTournamentDashboard(), loadPublicTournaments()]);
+  } catch (error) {
+    showAdminMessage(error.message);
+  }
+}
+
+async function createTournamentDraw(tournament, manualOrderInput) {
+  const body = {};
+  if (tournament.drawMode === 'manual') {
+    const tags = manualOrderInput.value.split(',').map((tag) => tag.trim().toUpperCase()).filter(Boolean);
+    const accepted = tournament.entries.filter((entry) => entry.status === 'accepted');
+    if (tags.length !== accepted.length || new Set(tags).size !== tags.length) {
+      showAdminMessage('Enter each accepted clan tag exactly once for the manual draw.');
+      return;
+    }
+    const orderedEntries = tags.map((tag) => accepted.find((entry) => entry.clanTag.toUpperCase() === tag));
+    if (orderedEntries.some((entry) => !entry)) {
+      showAdminMessage('The manual draw must contain only accepted clan tags.');
+      return;
+    }
+    body.entryIds = orderedEntries.map((entry) => entry.id);
+  }
+  try {
+    await requestApi(`/api/tournament-admin/${encodeURIComponent(tournament.id)}/draw`, {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
+    showAdminMessage('Tournament draw created and fixtures are ready.', 'success');
+    await Promise.all([loadTournamentDashboard(), loadPublicTournaments()]);
+  } catch (error) {
+    showAdminMessage(error.message);
+  }
+}
+
+async function saveTournamentMatch(event, tournament, match) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const homeValue = form.querySelector('[data-score="home"]').value;
+  const awayValue = form.querySelector('[data-score="away"]').value;
+  const scheduledValue = form.querySelector('input[type="datetime-local"]').value;
+  const body = {
+    homeScore: homeValue === '' ? null : Number(homeValue),
+    awayScore: awayValue === '' ? null : Number(awayValue),
+    scheduledAt: scheduledValue ? new Date(scheduledValue).toISOString() : null
+  };
+  const submit = form.querySelector('[type="submit"]');
+  submit.disabled = true;
+  try {
+    await requestApi(`/api/tournament-admin/${encodeURIComponent(tournament.id)}/matches/${encodeURIComponent(match.id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(body)
+    });
+    showAdminMessage('Match schedule and score saved.', 'success');
+    await Promise.all([loadTournamentDashboard(), loadPublicTournaments()]);
+  } catch (error) {
+    showAdminMessage(error.message);
+  } finally {
+    submit.disabled = false;
+  }
+}
+
+async function createTournament(event) {
+  event.preventDefault();
+  setFormBusy(createTournamentForm, true);
+  try {
+    const body = formValues(createTournamentForm);
+    body.maxClans = Number(body.maxClans);
+    body.logoDataUrl = await readClanLogo(createTournamentForm.elements.namedItem('logo').files[0]);
+    delete body.logo;
+    await requestApi('/api/tournaments', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
+    createTournamentForm.reset();
+    showAdminMessage('Tournament created. The assigned administrator can manage registrations and matches.', 'success');
+    await Promise.all([loadAdminDashboard(), loadPublicTournaments()]);
+  } catch (error) {
+    showAdminMessage(error.message);
+  } finally {
+    setFormBusy(createTournamentForm, false);
+  }
+}
+
 async function loadAdminDashboard() {
   if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'owner')) return;
   adminDashboard.hidden = false;
+  adminDashboard.querySelector('.admin-heading > p').textContent =
+    'Manage public site content, player accounts, and tournament operations. Only the owner can assign tournament administrators.';
+  tournamentCreatePanel.hidden = currentUser.role !== 'owner';
+  for (const panel of adminDashboard.querySelectorAll('.admin-panel:not(.tournament-admin-panel):not(.tournament-create-panel)')) {
+    panel.hidden = false;
+  }
   adminUserList.replaceChildren();
   adminClanList.replaceChildren();
   adminBanList.replaceChildren();
@@ -776,12 +1589,17 @@ async function loadAdminDashboard() {
   adminBanList.append(banLoading);
 
   try {
-    const [contentResult, usersResult, clansResult, bansResult] = await Promise.all([
+    const [contentResult, usersResult, clansResult, bansResult, tournamentsResult, eventsResult] = await Promise.all([
       requestApi('/api/admin/site-content'),
       requestApi('/api/admin/users'),
       requestApi('/api/admin/clans'),
-      requestApi('/api/admin/bans')
+      requestApi('/api/admin/bans'),
+      requestApi('/api/tournament-admin/tournaments'),
+      requestApi('/api/admin/events')
     ]);
+    renderTournamentAdminList(tournamentsResult.tournaments);
+    renderAdminEvents(eventsResult.events);
+    if (currentUser.role === 'owner') updateTournamentManagerOptions(usersResult.users);
     renderEditableFields(contentResult.fields);
     adminBanList.replaceChildren();
     for (const ban of bansResult.bans) addAdminBan(ban);
@@ -932,6 +1750,14 @@ adminEntry.addEventListener('click', (event) => {
   loadAdminDashboard();
 });
 
+tournamentAdminEntry.addEventListener('click', (event) => {
+  event.preventDefault();
+  clearAdminMessage();
+  history.replaceState(null, '', '#admin-dashboard');
+  adminDashboard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  loadTournamentDashboard();
+});
+
 siteContentForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const submit = siteContentForm.querySelector('[type="submit"]');
@@ -955,6 +1781,9 @@ siteContentForm.addEventListener('submit', async (event) => {
 
 createClanForm.addEventListener('submit', createClan);
 createBanForm.addEventListener('submit', createBan);
+createTournamentForm.addEventListener('submit', createTournament);
+eventForm.addEventListener('submit', saveEvent);
+eventCancelEdit.addEventListener('click', resetEventForm);
 
 document.querySelector('#register-form').addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -1001,9 +1830,12 @@ document.querySelector('#signout-button').addEventListener('click', async () => 
   try {
     await requestApi('/api/logout', { method: 'POST', body: '{}' });
     currentUser = null;
+    currentClan = null;
     adminDashboard.hidden = true;
+    tournamentAdminEntry.hidden = true;
     showPanel('login');
     showMessage('You have signed out.', 'success');
+    await loadPublicTournaments();
   } catch (error) {
     showMessage(error.message);
   }
@@ -1028,6 +1860,20 @@ loadPublicClans().catch((error) => {
   status.className = 'clan-list-status';
   status.textContent = `Clans could not be loaded: ${error.message}`;
   publicClanList.replaceChildren(status);
+});
+
+loadPublicTournaments().catch((error) => {
+  const status = document.createElement('p');
+  status.className = 'tournament-list-status';
+  status.textContent = `Tournaments could not be loaded: ${error.message}`;
+  publicTournamentList.replaceChildren(status);
+});
+
+loadPublicEvents().catch((error) => {
+  const status = document.createElement('p');
+  status.className = 'event-list-status';
+  status.textContent = `Events could not be loaded: ${error.message}`;
+  publicEventList.replaceChildren(status);
 });
 
 loadPublicBlacklist().catch((error) => {

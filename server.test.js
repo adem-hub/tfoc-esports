@@ -585,6 +585,254 @@ test('clan registration, consent, invitations, roster privacy, and owner permiss
   assert.equal(database.prepare('SELECT clan_id FROM clan_members WHERE clan_id = ?').get(clanId), undefined);
 });
 
+test('tournament administrators manage registrations, draws, match results, standings, and formats', async (context) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'tfoc-tournament-test-'));
+  const { server, database } = createApplication(testConfig(path.join(directory, 'accounts.sqlite')));
+
+  context.after(async () => {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+    database.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  });
+
+  const origin = await startTestServer(server);
+  const send = (route, body, cookie, method = 'POST') => fetch(`${origin}${route}`, {
+    method,
+    headers: {
+      Origin: origin,
+      'Content-Type': 'application/json',
+      ...(cookie ? { Cookie: cookie } : {})
+    },
+    ...(method === 'GET' ? {} : { body: JSON.stringify(body) })
+  });
+  let nextPhone = 1;
+  const register = async (username) => {
+    const response = await send('/api/register', {
+      username,
+      email: `${username}@example.test`,
+      playerId: `GAME-${username.toUpperCase()}`,
+      accountType: 'Player',
+      whatsappPhone: `+216${String(nextPhone++).padStart(8, '0')}`,
+      deviceSerial: `PRIVATE-SERIAL-${username}`,
+      password: 'a-strong-password-123'
+    });
+    assert.equal(response.status, 201);
+    return {
+      ...(await response.json()).user,
+      cookie: response.headers.get('set-cookie').split(';', 1)[0]
+    };
+  };
+
+  const owner = await register('cup_owner');
+  const players = await Promise.all(['cup_alpha', 'cup_bravo', 'cup_charlie', 'cup_delta'].map(register));
+  const manager = players[0];
+  await bootstrapOwner(database, owner.email, 'a-strong-password-123');
+  assert.equal((await send('/api/admin/users', {}, manager.cookie, 'GET')).status, 403);
+  const logoDataUrl = testPngDataUrl();
+  const clans = [];
+  for (const [index, player] of players.entries()) {
+    const clanResponse = await send('/api/clans', {
+      name: `${player.username} Clan`,
+      tag: `CUP${index + 1}`,
+      logoDataUrl,
+      publicRosterConsent: true
+    }, player.cookie);
+    assert.equal(clanResponse.status, 201);
+    const clan = (await clanResponse.json()).clan;
+    assert.equal((await send(`/api/admin/clans/${clan.id}/review`, { decision: 'approve' }, owner.cookie)).status, 200);
+    clans.push({ ...clan, cookie: player.cookie });
+  }
+
+  const createTournament = async (name, format, drawMode, maxClans) => {
+    const response = await send('/api/tournaments', {
+      name,
+      organizers: 'TFOC Esports Committee',
+      format,
+      drawMode,
+      maxClans,
+      managerId: manager.id,
+      logoDataUrl
+    }, owner.cookie);
+    assert.equal(response.status, 201);
+    return (await response.json()).tournament;
+  };
+  const registerAllClans = async (tournament) => {
+    for (const clan of clans) {
+      const response = await send(`/api/tournaments/${tournament.id}/register`, {}, clan.cookie);
+      assert.equal(response.status, 201);
+    }
+    const pending = (await send('/api/tournament-admin/tournaments', {}, manager.cookie, 'GET')).json();
+    const tournamentState = (await pending).tournaments.find((item) => item.id === tournament.id);
+    for (const entry of tournamentState.entries) {
+      assert.equal((await send(`/api/tournament-admin/${tournament.id}/entries/${entry.id}`, {
+        action: 'accept'
+      }, manager.cookie)).status, 200);
+    }
+    return (await send('/api/tournament-admin/tournaments', {}, manager.cookie, 'GET')).json()
+      .then((result) => result.tournaments.find((item) => item.id === tournament.id));
+  };
+  const saveScore = (tournament, match, homeScore, awayScore) => send(
+    `/api/tournament-admin/${tournament.id}/matches/${match.id}`,
+    { homeScore, awayScore, scheduledAt: '2027-01-15T18:30:00.000Z' },
+    manager.cookie,
+    'PUT'
+  );
+
+  const groups = await createTournament('TFOC Groups Cup', 'groups_elimination', 'random', 4);
+  const groupsState = await registerAllClans(groups);
+  assert.equal((await send('/api/admin/users', {}, manager.cookie, 'GET')).status, 403);
+  assert.equal((await send(`/api/tournament-admin/${groups.id}/draw`, {}, players[1].cookie)).status, 404);
+  assert.equal((await send(`/api/tournament-admin/${groups.id}/draw`, {}, manager.cookie)).status, 200);
+  let afterDraw = (await send('/api/tournament-admin/tournaments', {}, manager.cookie, 'GET')).json();
+  afterDraw = (await afterDraw).tournaments.find((item) => item.id === groups.id);
+  const groupMatches = afterDraw.matches.filter((match) => match.stage === 'group');
+  assert.equal(groupMatches.length, 2);
+  assert.equal(afterDraw.matches.filter((match) => match.stage === 'playoff').length, 3);
+  for (const match of groupMatches) assert.equal((await saveScore(groups, match, 1, 0)).status, 200);
+  let playoff = (await send('/api/tournament-admin/tournaments', {}, manager.cookie, 'GET')).json();
+  playoff = (await playoff).tournaments.find((item) => item.id === groups.id);
+  const semifinals = playoff.matches.filter((match) => match.stage === 'playoff' && match.round === 1);
+  assert.equal(semifinals.length, 2);
+  assert.equal(semifinals.every((match) => match.home && match.away), true);
+  for (const match of semifinals) assert.equal((await saveScore(groups, match, 2, 0)).status, 200);
+  const finalState = (await send('/api/tournament-admin/tournaments', {}, manager.cookie, 'GET')).json();
+  const finalMatch = (await finalState).tournaments.find((item) => item.id === groups.id)
+    .matches.find((match) => match.stage === 'playoff' && match.round === 2);
+  assert.ok(finalMatch.home && finalMatch.away);
+  assert.equal((await saveScore(groups, finalMatch, 3, 1)).status, 200);
+  const publicGroups = (await (await send('/api/tournaments', {}, undefined, 'GET')).json()).tournaments
+    .find((item) => item.id === groups.id);
+  assert.equal(publicGroups.status, 'completed');
+  assert.equal(publicGroups.standings.length, 4);
+  assert.equal(publicGroups.matches.find((match) => match.id === finalMatch.id).homeScore, 3);
+
+  const knockout = await createTournament('TFOC Manual Knockout', 'elimination', 'manual', 4);
+  const knockoutState = await registerAllClans(knockout);
+  const entries = knockoutState.entries.filter((entry) => entry.status === 'accepted');
+  assert.equal((await send(`/api/tournament-admin/${knockout.id}/entries/${entries[3].id}`, {
+    action: 'remove'
+  }, manager.cookie)).status, 200);
+  const drawEntries = entries.slice(0, 3);
+  assert.equal((await send(`/api/tournament-admin/${knockout.id}/draw`, {}, manager.cookie)).status, 400);
+  assert.equal((await send(`/api/tournament-admin/${knockout.id}/draw`, {
+    entryIds: drawEntries.map((entry) => entry.id).reverse()
+  }, manager.cookie)).status, 200);
+  let knockoutStateAfter = (await send('/api/tournament-admin/tournaments', {}, manager.cookie, 'GET')).json();
+  knockoutStateAfter = (await knockoutStateAfter).tournaments.find((item) => item.id === knockout.id);
+  assert.equal(knockoutStateAfter.matches.length, 3);
+  assert.equal(knockoutStateAfter.status, 'drawn');
+  const byeMatch = knockoutStateAfter.matches.find((match) => !match.home || !match.away);
+  assert.ok(byeMatch);
+  assert.equal((await saveScore(knockout, byeMatch, 2, 0)).status, 409);
+  const playableMatch = knockoutStateAfter.matches.find((match) => match.round === 1 && match.home && match.away);
+  assert.equal((await saveScore(knockout, playableMatch, 1, 1)).status, 400);
+  assert.equal((await saveScore(knockout, playableMatch, 2, 1)).status, 200);
+  const progressedKnockout = (await send('/api/tournament-admin/tournaments', {}, manager.cookie, 'GET')).json();
+  const knockoutFinal = (await progressedKnockout).tournaments.find((item) => item.id === knockout.id)
+    .matches.find((match) => match.round === 2);
+  assert.ok(knockoutFinal.home && knockoutFinal.away);
+  assert.equal((await saveScore(knockout, knockoutFinal, 1, 0)).status, 200);
+
+  const league = await createTournament('TFOC League Season', 'league', 'random', 4);
+  await registerAllClans(league);
+  assert.equal((await send(`/api/tournament-admin/${league.id}/draw`, {}, manager.cookie)).status, 200);
+  const leagueState = (await send('/api/tournament-admin/tournaments', {}, manager.cookie, 'GET')).json();
+  const leagueMatches = (await leagueState).tournaments.find((item) => item.id === league.id).matches;
+  assert.equal(leagueMatches.length, 6);
+  for (const match of leagueMatches) assert.equal((await saveScore(league, match, 2, 0)).status, 200);
+  const publicLeague = (await (await send('/api/tournaments', {}, undefined, 'GET')).json()).tournaments
+    .find((item) => item.id === league.id);
+  assert.equal(publicLeague.status, 'completed');
+  assert.equal(publicLeague.standings[0].points, 9);
+  assert.equal(publicLeague.standings.reduce((total, entry) => total + entry.points, 0), 18);
+});
+
+test('site administrators publish, update, and remove public events with pictures', async (context) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'tfoc-event-test-'));
+  const { server, database } = createApplication(testConfig(path.join(directory, 'accounts.sqlite')));
+
+  context.after(async () => {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+    database.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  });
+
+  const origin = await startTestServer(server);
+  const send = (route, body, cookie, method = 'POST') => fetch(`${origin}${route}`, {
+    method,
+    headers: {
+      Origin: origin,
+      'Content-Type': 'application/json',
+      ...(cookie ? { Cookie: cookie } : {})
+    },
+    ...(method === 'GET' ? {} : { body: JSON.stringify(body) })
+  });
+  const register = async (username, phone) => {
+    const response = await send('/api/register', {
+      username,
+      email: `${username}@example.test`,
+      playerId: `GAME-${username.toUpperCase()}`,
+      accountType: 'Player',
+      whatsappPhone: phone,
+      deviceSerial: `PRIVATE-SERIAL-${username}`,
+      password: 'a-strong-password-123'
+    });
+    assert.equal(response.status, 201);
+    return {
+      ...(await response.json()).user,
+      cookie: response.headers.get('set-cookie').split(';', 1)[0]
+    };
+  };
+  const owner = await register('event_owner', '+21600000001');
+  const admin = await register('event_admin', '+21600000002');
+  await bootstrapOwner(database, owner.email, 'a-strong-password-123');
+  assert.equal((await send('/api/admin/users/role', {
+    userId: admin.id,
+    role: 'admin'
+  }, owner.cookie)).status, 200);
+
+  assert.equal((await send('/api/admin/events', {}, undefined, 'GET')).status, 401);
+  assert.equal((await send('/api/admin/events', {
+    title: 'TFOC Community Day',
+    description: 'A full day of competition and community.',
+    imageDataUrl: testPngDataUrl(96, 64)
+  }, owner.cookie)).status, 201);
+  const createResponse = await send('/api/admin/events', {
+    title: 'TFOC Community Day',
+    description: 'A full day of competition and community.',
+    imageDataUrl: testPngDataUrl(96, 64)
+  }, admin.cookie);
+  assert.equal(createResponse.status, 201);
+  const created = (await createResponse.json()).event;
+  assert.equal(created.title, 'TFOC Community Day');
+
+  const publicResponse = await send('/api/events', {}, undefined, 'GET');
+  assert.equal(publicResponse.status, 200);
+  const publicEvents = await publicResponse.json();
+  assert.equal(publicEvents.events.length, 2);
+  assert.equal(publicEvents.events[0].description, 'A full day of competition and community.');
+  assert.equal(Object.hasOwn(publicEvents.events[0], 'createdBy'), false);
+  const image = await fetch(`${origin}${created.imageUrl}`);
+  assert.equal(image.status, 200);
+  assert.equal(image.headers.get('content-type'), 'image/png');
+  assert.equal((await image.arrayBuffer()).byteLength > 0, true);
+
+  const update = await send(`/api/admin/events/${created.id}`, {
+    title: 'TFOC Community Festival',
+    description: 'An updated story about the event and its champions.'
+  }, admin.cookie, 'PUT');
+  assert.equal(update.status, 200);
+  assert.equal((await (await send('/api/events', {}, undefined, 'GET')).json())
+    .events.find((event) => event.id === created.id).title, 'TFOC Community Festival');
+  assert.equal((await send(`/api/admin/events/${created.id}`, {}, undefined, 'DELETE')).status, 401);
+  assert.equal((await send(`/api/admin/events/${created.id}`, {}, admin.cookie, 'DELETE')).status, 200);
+  assert.equal((await send(`/api/events/${created.id}/image`, {}, undefined, 'GET')).status, 404);
+  const adminEvents = await send('/api/admin/events', {}, admin.cookie, 'GET');
+  assert.equal((await adminEvents.json()).events.some((event) => event.id === created.id), false);
+});
+
 test('serves byte ranges for the video cover', async (context) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'tfoc-static-test-'));
   const { server, database } = createApplication(testConfig(path.join(directory, 'accounts.sqlite')));

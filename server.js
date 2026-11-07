@@ -14,6 +14,8 @@ const SESSION_DURATION = 7 * 24 * 60 * 60 * 1000;
 const MAX_REQUEST_SIZE = 8 * 1024;
 const MAX_CLAN_REQUEST_SIZE = 700 * 1024;
 const MAX_CLAN_LOGO_SIZE = 512 * 1024;
+const MAX_EVENT_REQUEST_SIZE = 1400 * 1024;
+const MAX_EVENT_IMAGE_SIZE = 1024 * 1024;
 const PASSWORD_OPTIONS = { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 const SITE_CONTENT = Object.freeze({
   'hero.eyebrow': { label: 'Hero · eyebrow', value: 'TUNISIAN ESPORTS COMMUNITY' },
@@ -165,6 +167,62 @@ function initializeDatabase(databasePath) {
     );
     CREATE INDEX IF NOT EXISTS player_bans_active
       ON player_bans (user_id, expires_at) WHERE revoked_at IS NULL;
+
+    CREATE TABLE IF NOT EXISTS tournaments (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      organizers TEXT NOT NULL,
+      format TEXT NOT NULL CHECK (format IN ('league', 'elimination', 'groups_elimination')),
+      max_clans INTEGER NOT NULL CHECK (max_clans BETWEEN 2 AND 32),
+      draw_mode TEXT NOT NULL CHECK (draw_mode IN ('random', 'manual')),
+      logo_mime TEXT NOT NULL CHECK (logo_mime IN ('image/png', 'image/jpeg')),
+      logo_blob BLOB NOT NULL,
+      created_by TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      manager_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'registration' CHECK (status IN ('registration', 'drawn', 'completed'))
+    );
+    CREATE INDEX IF NOT EXISTS tournaments_by_manager ON tournaments (manager_id, created_at);
+    CREATE TABLE IF NOT EXISTS tournament_entries (
+      id TEXT PRIMARY KEY,
+      tournament_id TEXT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+      clan_id TEXT NOT NULL REFERENCES clans(id) ON DELETE CASCADE,
+      status TEXT NOT NULL CHECK (status IN ('pending', 'accepted', 'declined', 'removed')),
+      created_at INTEGER NOT NULL,
+      reviewed_at INTEGER,
+      UNIQUE (tournament_id, clan_id)
+    );
+    CREATE INDEX IF NOT EXISTS tournament_entries_by_tournament
+      ON tournament_entries (tournament_id, status, created_at);
+    CREATE TABLE IF NOT EXISTS tournament_matches (
+      id TEXT PRIMARY KEY,
+      tournament_id TEXT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+      stage TEXT NOT NULL CHECK (stage IN ('league', 'group', 'elimination', 'playoff')),
+      round_number INTEGER NOT NULL,
+      group_name TEXT,
+      slot INTEGER NOT NULL,
+      home_entry_id TEXT REFERENCES tournament_entries(id) ON DELETE SET NULL,
+      away_entry_id TEXT REFERENCES tournament_entries(id) ON DELETE SET NULL,
+      home_score INTEGER CHECK (home_score IS NULL OR home_score BETWEEN 0 AND 99),
+      away_score INTEGER CHECK (away_score IS NULL OR away_score BETWEEN 0 AND 99),
+      winner_entry_id TEXT REFERENCES tournament_entries(id) ON DELETE SET NULL,
+      scheduled_at INTEGER,
+      created_at INTEGER NOT NULL,
+      UNIQUE (tournament_id, stage, round_number, group_name, slot)
+    );
+    CREATE INDEX IF NOT EXISTS tournament_matches_by_tournament
+      ON tournament_matches (tournament_id, stage, round_number, slot);
+    CREATE TABLE IF NOT EXISTS events (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      image_mime TEXT NOT NULL CHECK (image_mime IN ('image/png', 'image/jpeg')),
+      image_blob BLOB NOT NULL,
+      created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS events_by_created_at ON events (created_at DESC);
   `);
   const userColumns = database.prepare('PRAGMA table_info(users)').all();
   const clanColumns = database.prepare('PRAGMA table_info(clans)').all();
@@ -415,17 +473,21 @@ function serveStatic(request, response, pathname) {
   else fs.createReadStream(filePath).pipe(response);
 }
 
-function parseClanLogo(dataUrl) {
+function parseClanLogo(dataUrl, options = {}) {
+  const label = options.label || 'clan logo';
+  const maxBytes = options.maxBytes || MAX_CLAN_LOGO_SIZE;
+  const maxDimension = options.maxDimension || 1024;
+  const requireSquare = options.requireSquare !== false;
   const match = typeof dataUrl === 'string'
     && /^data:image\/(png|jpeg);base64,([A-Za-z0-9+/]+={0,2})$/.exec(dataUrl);
   if (!match) {
-    throw new Error('Choose a PNG or JPEG clan logo.');
+    throw new Error(`Choose a PNG or JPEG ${label}.`);
   }
 
   const mimeType = `image/${match[1]}`;
   const logo = Buffer.from(match[2], 'base64');
-  if (logo.length === 0 || logo.length > MAX_CLAN_LOGO_SIZE || logo.toString('base64') !== match[2]) {
-    throw new Error('The clan logo must be a valid image under 512 KB.');
+  if (logo.length === 0 || logo.length > maxBytes || logo.toString('base64') !== match[2]) {
+    throw new Error(`The ${label} must be a valid image under ${Math.round(maxBytes / 1024)} KB.`);
   }
 
   let width;
@@ -458,9 +520,10 @@ function parseClanLogo(dataUrl) {
   }
 
   if (!Number.isInteger(width) || !Number.isInteger(height)
-      || width < 64 || height < 64 || width > 1024 || height > 1024
-      || width !== height) {
-    throw new Error('Use a square PNG or JPEG logo between 64 × 64 and 1024 × 1024 pixels.');
+      || width < 64 || height < 64 || width > maxDimension || height > maxDimension
+      || (requireSquare && width !== height)) {
+    const shape = requireSquare ? 'square ' : '';
+    throw new Error(`Use a ${shape}PNG or JPEG ${label} between 64 × 64 and ${maxDimension} × ${maxDimension} pixels.`);
   }
   return { mimeType, logo };
 }
@@ -489,6 +552,109 @@ function publicClanDetails(database, clan, includeIds = false) {
     memberCount: roster.length,
     createdAt: new Date(clan.created_at).toISOString(),
     roster
+  };
+}
+
+function tournamentDetails(database, tournament, includeAdmin = false) {
+  const entries = database.prepare(`
+    SELECT tournament_entries.id, tournament_entries.status, tournament_entries.created_at,
+      clans.id AS clan_id, clans.name AS clan_name, clans.tag AS clan_tag
+    FROM tournament_entries
+    JOIN clans ON clans.id = tournament_entries.clan_id
+    WHERE tournament_entries.tournament_id = ?
+      ${includeAdmin ? '' : "AND tournament_entries.status = 'accepted'"}
+    ORDER BY clans.name COLLATE NOCASE
+  `).all(tournament.id).map((entry) => ({
+    id: entry.id,
+    clanId: entry.clan_id,
+    clanName: entry.clan_name,
+    clanTag: entry.clan_tag,
+    clanLogoUrl: `/api/clans/${encodeURIComponent(entry.clan_tag)}/logo`,
+    status: entry.status,
+    createdAt: new Date(entry.created_at).toISOString()
+  }));
+  const matches = database.prepare(`
+    SELECT tournament_matches.*,
+      home_clan.name AS home_name, home_clan.tag AS home_tag,
+      away_clan.name AS away_name, away_clan.tag AS away_tag,
+      winner_clan.name AS winner_name, winner_clan.tag AS winner_tag
+    FROM tournament_matches
+    LEFT JOIN tournament_entries AS home_entry ON home_entry.id = tournament_matches.home_entry_id
+    LEFT JOIN clans AS home_clan ON home_clan.id = home_entry.clan_id
+    LEFT JOIN tournament_entries AS away_entry ON away_entry.id = tournament_matches.away_entry_id
+    LEFT JOIN clans AS away_clan ON away_clan.id = away_entry.clan_id
+    LEFT JOIN tournament_entries AS winner_entry ON winner_entry.id = tournament_matches.winner_entry_id
+    LEFT JOIN clans AS winner_clan ON winner_clan.id = winner_entry.clan_id
+    WHERE tournament_matches.tournament_id = ?
+    ORDER BY CASE tournament_matches.stage
+      WHEN 'group' THEN 0 WHEN 'league' THEN 0 ELSE 1 END,
+      tournament_matches.group_name, tournament_matches.round_number, tournament_matches.slot
+  `).all(tournament.id).map((match) => ({
+    id: match.id,
+    stage: match.stage,
+    round: match.round_number,
+    group: match.group_name,
+    slot: match.slot,
+    homeEntryId: match.home_entry_id,
+    awayEntryId: match.away_entry_id,
+    home: match.home_name ? { name: match.home_name, tag: match.home_tag } : null,
+    away: match.away_name ? { name: match.away_name, tag: match.away_tag } : null,
+    homeScore: match.home_score,
+    awayScore: match.away_score,
+    winner: match.winner_name ? { name: match.winner_name, tag: match.winner_tag } : null,
+    scheduledAt: match.scheduled_at === null ? null : new Date(match.scheduled_at).toISOString()
+  }));
+  const scoreStages = new Set(['league', 'group', 'elimination', 'playoff']);
+  const standingsByEntry = new Map(entries.filter((entry) => entry.status === 'accepted').map((entry) => [
+    entry.id,
+    { entryId: entry.id, clanName: entry.clanName, clanTag: entry.clanTag, played: 0, wins: 0, draws: 0, losses: 0, goalsFor: 0, goalsAgainst: 0, points: 0 }
+  ]));
+  for (const match of matches) {
+    if (!scoreStages.has(match.stage) || match.homeScore === null || match.awayScore === null) continue;
+    const home = standingsByEntry.get(match.homeEntryId);
+    const away = standingsByEntry.get(match.awayEntryId);
+    if (!home || !away) continue;
+    home.played += 1;
+    away.played += 1;
+    home.goalsFor += match.homeScore;
+    home.goalsAgainst += match.awayScore;
+    away.goalsFor += match.awayScore;
+    away.goalsAgainst += match.homeScore;
+    if (match.homeScore > match.awayScore) {
+      home.wins += 1;
+      home.points += 3;
+      away.losses += 1;
+    } else if (match.homeScore < match.awayScore) {
+      away.wins += 1;
+      away.points += 3;
+      home.losses += 1;
+    } else {
+      home.draws += 1;
+      away.draws += 1;
+      home.points += 1;
+      away.points += 1;
+    }
+  }
+  const standings = [...standingsByEntry.values()].sort((left, right) =>
+    right.points - left.points
+    || (right.goalsFor - right.goalsAgainst) - (left.goalsFor - left.goalsAgainst)
+    || right.goalsFor - left.goalsFor
+    || left.clanName.localeCompare(right.clanName));
+
+  return {
+    id: tournament.id,
+    name: tournament.name,
+    organizers: tournament.organizers,
+    format: tournament.format,
+    maxClans: tournament.max_clans,
+    drawMode: tournament.draw_mode,
+    status: tournament.status,
+    logoUrl: `/api/tournaments/${encodeURIComponent(tournament.id)}/logo`,
+    createdAt: new Date(tournament.created_at).toISOString(),
+    entries,
+    matches,
+    standings,
+    ...(includeAdmin ? { managerId: tournament.manager_id } : {})
   };
 }
 
@@ -531,6 +697,241 @@ function createApplication(config, options = {}) {
       return null;
     }
     return user;
+  }
+
+  function managedTournament(request, response, tournamentId) {
+    const user = currentUser(request);
+    if (!user) {
+      writeResponse(response, 401, { error: 'Sign in to manage tournament operations.' });
+      return null;
+    }
+    const tournament = database.prepare('SELECT * FROM tournaments WHERE id = ?').get(tournamentId);
+    if (!tournament || (user.role !== 'owner' && tournament.manager_id !== user.id)) {
+      writeResponse(response, 404, { error: 'Tournament not found or you are not its administrator.' });
+      return null;
+    }
+    return { user, tournament };
+  }
+
+  function addTournamentMatch(tournamentId, stage, round, groupName, slot, homeEntryId, awayEntryId, now) {
+    database.prepare(`
+      INSERT INTO tournament_matches (
+        id, tournament_id, stage, round_number, group_name, slot,
+        home_entry_id, away_entry_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(crypto.randomUUID(), tournamentId, stage, round, groupName, slot, homeEntryId, awayEntryId, now);
+  }
+
+  function reconcileKnockout(tournamentId, stage) {
+    function matchHasUnresolvedOpponent(match) {
+      if (!match || match.winner_entry_id) return false;
+      if (match.home_entry_id && match.away_entry_id) return true;
+      if (match.round_number <= 1) return false;
+      const feeders = database.prepare(`
+        SELECT * FROM tournament_matches
+        WHERE tournament_id = ? AND stage = ? AND round_number = ?
+          AND slot IN (?, ?)
+      `).all(tournamentId, stage, match.round_number - 1, match.slot * 2 - 1, match.slot * 2);
+      return feeders.some((feeder) => matchHasUnresolvedOpponent(feeder));
+    }
+
+    const rounds = database.prepare(`
+      SELECT DISTINCT round_number FROM tournament_matches
+      WHERE tournament_id = ? AND stage = ? ORDER BY round_number
+    `).all(tournamentId, stage).map((round) => round.round_number);
+    for (const round of rounds) {
+      const currentMatches = database.prepare(`
+        SELECT * FROM tournament_matches
+        WHERE tournament_id = ? AND stage = ? AND round_number = ? ORDER BY slot
+      `).all(tournamentId, stage, round);
+      for (const match of currentMatches) {
+        let homeEntryId = match.home_entry_id;
+        let awayEntryId = match.away_entry_id;
+        let waitingForOpponent = false;
+        if (round > 1) {
+          const previous = database.prepare(`
+            SELECT slot, home_entry_id, away_entry_id, winner_entry_id FROM tournament_matches
+            WHERE tournament_id = ? AND stage = ? AND round_number = ?
+              AND slot IN (?, ?)
+          `).all(tournamentId, stage, round - 1, match.slot * 2 - 1, match.slot * 2);
+          const homeFeeder = previous.find((item) => item.slot === match.slot * 2 - 1);
+          const awayFeeder = previous.find((item) => item.slot === match.slot * 2);
+          homeEntryId = homeFeeder?.winner_entry_id || null;
+          awayEntryId = awayFeeder?.winner_entry_id || null;
+          waitingForOpponent = (!homeEntryId && matchHasUnresolvedOpponent(homeFeeder))
+            || (!awayEntryId && matchHasUnresolvedOpponent(awayFeeder));
+        }
+        const teamsChanged = homeEntryId !== match.home_entry_id || awayEntryId !== match.away_entry_id;
+        let homeScore = teamsChanged ? null : match.home_score;
+        let awayScore = teamsChanged ? null : match.away_score;
+        let winnerEntryId = null;
+        if (homeEntryId && awayEntryId && homeScore !== null && awayScore !== null) {
+          winnerEntryId = homeScore > awayScore ? homeEntryId : awayEntryId;
+        } else if (homeEntryId && !awayEntryId && !waitingForOpponent) {
+          winnerEntryId = homeEntryId;
+        } else if (!homeEntryId && awayEntryId && !waitingForOpponent) {
+          winnerEntryId = awayEntryId;
+        }
+        database.prepare(`
+          UPDATE tournament_matches
+          SET home_entry_id = ?, away_entry_id = ?, home_score = ?, away_score = ?, winner_entry_id = ?
+          WHERE id = ?
+        `).run(homeEntryId, awayEntryId, homeScore, awayScore, winnerEntryId, match.id);
+      }
+    }
+  }
+
+  function reconcileGroups(tournamentId, now) {
+    const remaining = database.prepare(`
+      SELECT COUNT(*) AS count FROM tournament_matches
+      WHERE tournament_id = ? AND stage = 'group'
+        AND (home_score IS NULL OR away_score IS NULL)
+    `).get(tournamentId).count;
+    if (remaining > 0) return;
+
+    const groupMatches = database.prepare(`
+      SELECT tournament_matches.*, home_clan.name AS home_name, away_clan.name AS away_name
+      FROM tournament_matches
+      JOIN tournament_entries AS home_entry ON home_entry.id = tournament_matches.home_entry_id
+      JOIN clans AS home_clan ON home_clan.id = home_entry.clan_id
+      JOIN tournament_entries AS away_entry ON away_entry.id = tournament_matches.away_entry_id
+      JOIN clans AS away_clan ON away_clan.id = away_entry.clan_id
+      WHERE tournament_matches.tournament_id = ? AND tournament_matches.stage = 'group'
+    `).all(tournamentId);
+    const tables = new Map();
+    for (const match of groupMatches) {
+      if (!tables.has(match.group_name)) tables.set(match.group_name, new Map());
+      const table = tables.get(match.group_name);
+      for (const side of [
+        { id: match.home_entry_id, name: match.home_name },
+        { id: match.away_entry_id, name: match.away_name }
+      ]) {
+        if (!table.has(side.id)) {
+          table.set(side.id, { id: side.id, name: side.name, points: 0, goalsFor: 0, goalsAgainst: 0 });
+        }
+      }
+      const home = table.get(match.home_entry_id);
+      const away = table.get(match.away_entry_id);
+      home.goalsFor += match.home_score;
+      home.goalsAgainst += match.away_score;
+      away.goalsFor += match.away_score;
+      away.goalsAgainst += match.home_score;
+      if (match.home_score > match.away_score) home.points += 3;
+      else if (match.home_score < match.away_score) away.points += 3;
+      else {
+        home.points += 1;
+        away.points += 1;
+      }
+    }
+    const ranked = [...tables.values()].map((table) => [...table.values()].sort((left, right) =>
+      right.points - left.points
+      || (right.goalsFor - right.goalsAgainst) - (left.goalsFor - left.goalsAgainst)
+      || right.goalsFor - left.goalsFor
+      || left.name.localeCompare(right.name)));
+    if (ranked.length !== 2 || ranked.some((group) => group.length < 2)) return;
+
+    const semifinals = database.prepare(`
+      SELECT * FROM tournament_matches
+      WHERE tournament_id = ? AND stage = 'playoff' AND round_number = 1 ORDER BY slot
+    `).all(tournamentId);
+    const qualifiers = [
+      [ranked[0][0].id, ranked[1][1].id],
+      [ranked[1][0].id, ranked[0][1].id]
+    ];
+    for (const [index, match] of semifinals.entries()) {
+      const [home, away] = qualifiers[index];
+      const changed = match.home_entry_id !== home || match.away_entry_id !== away;
+      database.prepare(`
+        UPDATE tournament_matches
+        SET home_entry_id = ?, away_entry_id = ?,
+          home_score = CASE WHEN ? THEN NULL ELSE home_score END,
+          away_score = CASE WHEN ? THEN NULL ELSE away_score END,
+          winner_entry_id = CASE WHEN ? THEN NULL ELSE winner_entry_id END
+        WHERE id = ?
+      `).run(home, away, changed ? 1 : 0, changed ? 1 : 0, changed ? 1 : 0, match.id);
+    }
+    reconcileKnockout(tournamentId, 'playoff');
+    const final = database.prepare(`
+      SELECT winner_entry_id FROM tournament_matches
+      WHERE tournament_id = ? AND stage = 'playoff' AND round_number = 2
+    `).get(tournamentId);
+    if (final?.winner_entry_id) {
+      database.prepare("UPDATE tournaments SET status = 'completed' WHERE id = ?").run(tournamentId);
+    }
+    void now;
+  }
+
+  function createTournamentDraw(tournament, acceptedEntries, now) {
+    let order = [...acceptedEntries];
+    if (tournament.draw_mode === 'random') {
+      for (let index = order.length - 1; index > 0; index -= 1) {
+        const swap = crypto.randomInt(index + 1);
+        [order[index], order[swap]] = [order[swap], order[index]];
+      }
+    }
+    if (tournament.format === 'league') {
+      const entrants = [...order];
+      if (entrants.length % 2) entrants.push(null);
+      const totalRounds = entrants.length - 1;
+      for (let round = 0; round < totalRounds; round += 1) {
+        for (let index = 0; index < entrants.length / 2; index += 1) {
+          const home = entrants[index];
+          const away = entrants[entrants.length - 1 - index];
+          if (home && away) addTournamentMatch(tournament.id, 'league', round + 1, null, index + 1, home.id, away.id, now);
+        }
+        entrants.splice(1, 0, entrants.pop());
+      }
+    } else if (tournament.format === 'groups_elimination') {
+      const groups = [[], []];
+      order.forEach((entry, index) => groups[index % 2].push(entry));
+      for (const [groupIndex, entrants] of groups.entries()) {
+        let slot = 1;
+        for (let first = 0; first < entrants.length; first += 1) {
+          for (let second = first + 1; second < entrants.length; second += 1) {
+            addTournamentMatch(
+              tournament.id, 'group', 1, groupIndex === 0 ? 'A' : 'B',
+              slot++, entrants[first].id, entrants[second].id, now
+            );
+          }
+        }
+      }
+      addTournamentMatch(tournament.id, 'playoff', 1, null, 1, null, null, now);
+      addTournamentMatch(tournament.id, 'playoff', 1, null, 2, null, null, now);
+      addTournamentMatch(tournament.id, 'playoff', 2, null, 1, null, null, now);
+    } else {
+      let bracketSize = 1;
+      while (bracketSize < order.length) bracketSize *= 2;
+      let seeds = [1, 2];
+      while (seeds.length < bracketSize) {
+        const nextSize = seeds.length * 2;
+        seeds = seeds.flatMap((seed) => [seed, nextSize + 1 - seed]);
+      }
+      const seededEntries = seeds.map((seed) => order[seed - 1] || null);
+      const rounds = Math.log2(bracketSize);
+      for (let round = 1; round <= rounds; round += 1) {
+        const slots = bracketSize / (2 ** round);
+        for (let slot = 1; slot <= slots; slot += 1) {
+          if (round === 1) {
+            addTournamentMatch(
+              tournament.id, 'elimination', round, null, slot,
+              seededEntries[(slot - 1) * 2]?.id || null,
+              seededEntries[(slot - 1) * 2 + 1]?.id || null,
+              now
+            );
+          } else {
+            addTournamentMatch(tournament.id, 'elimination', round, null, slot, null, null, now);
+          }
+        }
+      }
+      reconcileKnockout(tournament.id, 'elimination');
+      const final = database.prepare(`
+        SELECT winner_entry_id FROM tournament_matches
+        WHERE tournament_id = ? AND stage = 'elimination' AND round_number = ?
+      `).get(tournament.id, rounds);
+      if (final?.winner_entry_id) {
+        database.prepare("UPDATE tournaments SET status = 'completed' WHERE id = ?").run(tournament.id);
+      }
+    }
   }
 
   function createUserSession(userId, request) {
@@ -576,6 +977,40 @@ function createApplication(config, options = {}) {
       return;
     }
 
+    if (request.method === 'GET' && pathname === '/api/events') {
+      const events = database.prepare(`
+        SELECT id, title, description, created_at, updated_at
+        FROM events ORDER BY created_at DESC
+      `).all().map((event) => ({
+        id: event.id,
+        title: event.title,
+        description: event.description,
+        imageUrl: `/api/events/${encodeURIComponent(event.id)}/image`,
+        createdAt: new Date(event.created_at).toISOString(),
+        updatedAt: new Date(event.updated_at).toISOString()
+      }));
+      writeResponse(response, 200, { events });
+      return;
+    }
+
+    const eventImageMatch = /^\/api\/events\/([0-9a-f-]{36})\/image$/i.exec(pathname);
+    if (request.method === 'GET' && eventImageMatch) {
+      const event = database.prepare('SELECT image_mime, image_blob FROM events WHERE id = ?')
+        .get(eventImageMatch[1]);
+      if (!event) {
+        writeResponse(response, 404, { error: 'Event not found.' });
+        return;
+      }
+      response.writeHead(200, {
+        'Content-Type': event.image_mime,
+        'Content-Length': event.image_blob.length,
+        'Cache-Control': 'public, max-age=3600',
+        'X-Content-Type-Options': 'nosniff'
+      });
+      response.end(event.image_blob);
+      return;
+    }
+
     if (request.method === 'GET' && pathname === '/api/clans') {
       const clans = database.prepare(`
         SELECT clans.*, users.username AS owner_username
@@ -585,6 +1020,64 @@ function createApplication(config, options = {}) {
         ORDER BY clans.name COLLATE NOCASE
       `).all().map((clan) => publicClanDetails(database, clan));
       writeResponse(response, 200, { clans });
+      return;
+    }
+
+    if (request.method === 'GET' && pathname === '/api/tournaments') {
+      const viewer = currentUser(request);
+      const ownedClan = viewer ? database.prepare(`
+        SELECT clans.id FROM clans
+        JOIN clan_members ON clan_members.clan_id = clans.id
+        WHERE clan_members.user_id = ? AND clan_members.role = 'owner'
+      `).get(viewer.id) : null;
+      const tournaments = database.prepare('SELECT * FROM tournaments ORDER BY created_at DESC')
+        .all().map((tournament) => {
+          const details = tournamentDetails(database, tournament);
+          if (ownedClan) {
+            const registration = database.prepare(`
+              SELECT status FROM tournament_entries
+              WHERE tournament_id = ? AND clan_id = ?
+            `).get(tournament.id, ownedClan.id);
+            details.myEntryStatus = registration?.status || null;
+          } else {
+            details.myEntryStatus = null;
+          }
+          return details;
+        });
+      writeResponse(response, 200, { tournaments });
+      return;
+    }
+
+    const tournamentLogoMatch = /^\/api\/tournaments\/([0-9a-f-]{36})\/logo$/i.exec(pathname);
+    if (request.method === 'GET' && tournamentLogoMatch) {
+      const tournament = database.prepare('SELECT logo_mime, logo_blob FROM tournaments WHERE id = ?')
+        .get(tournamentLogoMatch[1]);
+      if (!tournament) {
+        writeResponse(response, 404, { error: 'Tournament not found.' });
+        return;
+      }
+      response.writeHead(200, {
+        'Content-Type': tournament.logo_mime,
+        'Content-Length': tournament.logo_blob.length,
+        'Cache-Control': 'public, max-age=3600',
+        'X-Content-Type-Options': 'nosniff'
+      });
+      response.end(tournament.logo_blob);
+      return;
+    }
+
+    if (request.method === 'GET' && pathname === '/api/tournament-admin/tournaments') {
+      const user = currentUser(request);
+      if (!user) {
+        writeResponse(response, 401, { error: 'Sign in to manage tournament operations.' });
+        return;
+      }
+      const tournaments = database.prepare(user.role === 'owner'
+        ? 'SELECT * FROM tournaments ORDER BY created_at DESC'
+        : 'SELECT * FROM tournaments WHERE manager_id = ? ORDER BY created_at DESC')
+        .all(...(user.role === 'owner' ? [] : [user.id]))
+        .map((tournament) => tournamentDetails(database, tournament, true));
+      writeResponse(response, 200, { tournaments });
       return;
     }
 
@@ -765,6 +1258,23 @@ function createApplication(config, options = {}) {
       return;
     }
 
+    if (pathname === '/api/admin/events' && request.method === 'GET') {
+      if (!adminUser(request, response)) return;
+      const events = database.prepare(`
+        SELECT id, title, description, created_at, updated_at
+        FROM events ORDER BY created_at DESC
+      `).all().map((event) => ({
+        id: event.id,
+        title: event.title,
+        description: event.description,
+        imageUrl: `/api/events/${encodeURIComponent(event.id)}/image`,
+        createdAt: new Date(event.created_at).toISOString(),
+        updatedAt: new Date(event.updated_at).toISOString()
+      }));
+      writeResponse(response, 200, { events });
+      return;
+    }
+
     if (pathname === '/api/admin/site-content' && request.method === 'GET') {
       if (!adminUser(request, response)) return;
       const content = getSiteContent();
@@ -792,9 +1302,12 @@ function createApplication(config, options = {}) {
     try {
       data = request.method === 'DELETE' ? {} : await readJson(
         request,
-        pathname === '/api/clans' || /^\/api\/clans\/[0-9a-f-]{36}$/i.test(pathname)
-          ? MAX_CLAN_REQUEST_SIZE
-          : MAX_REQUEST_SIZE
+        pathname === '/api/admin/events' || /^\/api\/admin\/events\/[0-9a-f-]{36}$/i.test(pathname)
+          ? MAX_EVENT_REQUEST_SIZE
+          : pathname === '/api/clans' || /^\/api\/clans\/[0-9a-f-]{36}$/i.test(pathname)
+            || pathname === '/api/tournaments'
+            ? MAX_CLAN_REQUEST_SIZE
+            : MAX_REQUEST_SIZE
       );
     } catch (error) {
       writeResponse(response, error.status || 400, { error: error.message });
@@ -803,6 +1316,409 @@ function createApplication(config, options = {}) {
 
     const ip = getClientIp(request, config.trustProxy);
     const now = Date.now();
+
+    if (pathname === '/api/tournaments' && request.method === 'POST') {
+      const owner = currentUser(request);
+      if (!owner) {
+        writeResponse(response, 401, { error: 'Sign in as the site owner to create a tournament.' });
+        return;
+      }
+      if (owner.role !== 'owner') {
+        writeResponse(response, 403, { error: 'Only the site owner can create tournaments and assign tournament administrators.' });
+        return;
+      }
+      const name = typeof data.name === 'string' ? data.name.trim() : '';
+      const organizers = typeof data.organizers === 'string' ? data.organizers.trim() : '';
+      const allowedFormats = ['league', 'elimination', 'groups_elimination'];
+      const maxClans = data.maxClans;
+      if (name.length < 3 || name.length > 64
+          || organizers.length < 2 || organizers.length > 160
+          || !allowedFormats.includes(data.format)
+          || !Number.isInteger(maxClans) || maxClans < 2 || maxClans > 32
+          || (data.format === 'league' && maxClans > 16)
+          || (data.format === 'groups_elimination' && maxClans < 4)
+          || !['random', 'manual'].includes(data.drawMode)
+          || typeof data.managerId !== 'string' || !/^[0-9a-f-]{36}$/i.test(data.managerId)) {
+        writeResponse(response, 400, { error: 'Enter valid tournament details, choose 2–32 clans (league up to 16, groups at least 4), a draw style, and a tournament administrator.' });
+        return;
+      }
+      const manager = database.prepare('SELECT id FROM users WHERE id = ?').get(data.managerId);
+      if (!manager) {
+        writeResponse(response, 404, { error: 'Choose an existing player account as tournament administrator.' });
+        return;
+      }
+      if (!allowRequest(`tournament-create:${owner.id}`, 5, 24 * 60 * 60 * 1000)) {
+        writeResponse(response, 429, { error: 'Too many tournaments created. Try again later.' }, { 'Retry-After': '86400' });
+        return;
+      }
+      let logo;
+      try {
+        logo = parseClanLogo(data.logoDataUrl);
+      } catch (error) {
+        writeResponse(response, 400, { error: error.message.replaceAll('clan', 'tournament') });
+        return;
+      }
+      const tournamentId = crypto.randomUUID();
+      database.prepare(`
+        INSERT INTO tournaments (
+          id, name, organizers, format, max_clans, draw_mode,
+          logo_mime, logo_blob, created_by, manager_id, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        tournamentId, name, organizers, data.format, maxClans, data.drawMode,
+        logo.mimeType, logo.logo, owner.id, manager.id, now
+      );
+      writeResponse(response, 201, {
+        tournament: tournamentDetails(database, database.prepare('SELECT * FROM tournaments WHERE id = ?').get(tournamentId), true)
+      });
+      return;
+    }
+
+    const tournamentRegisterMatch = /^\/api\/tournaments\/([0-9a-f-]{36})\/register$/i.exec(pathname);
+    if (tournamentRegisterMatch && request.method === 'POST') {
+      const player = currentUser(request);
+      if (!player) {
+        writeResponse(response, 401, { error: 'Sign in as the clan owner to register a clan.' });
+        return;
+      }
+      const tournament = database.prepare('SELECT * FROM tournaments WHERE id = ?').get(tournamentRegisterMatch[1]);
+      if (!tournament) {
+        writeResponse(response, 404, { error: 'Tournament not found.' });
+        return;
+      }
+      if (tournament.status !== 'registration') {
+        writeResponse(response, 409, { error: 'Registration for this tournament is closed.' });
+        return;
+      }
+      const clan = database.prepare(`
+        SELECT clans.id, clans.name
+        FROM clans
+        JOIN clan_members ON clan_members.clan_id = clans.id
+        WHERE clan_members.user_id = ? AND clan_members.role = 'owner'
+          AND clans.approval_status = 'approved'
+      `).get(player.id);
+      if (!clan) {
+        writeResponse(response, 403, { error: 'Only the owner of an approved clan can register it.' });
+        return;
+      }
+      const existing = database.prepare(`
+        SELECT id, status FROM tournament_entries
+        WHERE tournament_id = ? AND clan_id = ?
+      `).get(tournament.id, clan.id);
+      if (existing && ['pending', 'accepted'].includes(existing.status)) {
+        writeResponse(response, 409, { error: 'Your clan already has a registration for this tournament.' });
+        return;
+      }
+      const reserved = database.prepare(`
+        SELECT COUNT(*) AS count FROM tournament_entries
+        WHERE tournament_id = ? AND status IN ('pending', 'accepted')
+      `).get(tournament.id).count;
+      if (reserved >= tournament.max_clans) {
+        writeResponse(response, 409, { error: 'This tournament has reached its clan capacity.' });
+        return;
+      }
+      const entryId = existing?.id || crypto.randomUUID();
+      if (existing) {
+        database.prepare(`
+          UPDATE tournament_entries SET status = 'pending', created_at = ?, reviewed_at = NULL WHERE id = ?
+        `).run(now, entryId);
+      } else {
+        database.prepare(`
+          INSERT INTO tournament_entries (id, tournament_id, clan_id, status, created_at)
+          VALUES (?, ?, ?, 'pending', ?)
+        `).run(entryId, tournament.id, clan.id, now);
+      }
+      writeResponse(response, 201, { entryId, status: 'pending', clanName: clan.name });
+      return;
+    }
+
+    const tournamentEntryActionMatch = /^\/api\/tournament-admin\/([0-9a-f-]{36})\/entries\/([0-9a-f-]{36})$/i.exec(pathname);
+    if (tournamentEntryActionMatch && request.method === 'POST') {
+      const access = managedTournament(request, response, tournamentEntryActionMatch[1]);
+      if (!access) return;
+      const { tournament } = access;
+      const entry = database.prepare(`
+        SELECT * FROM tournament_entries WHERE id = ? AND tournament_id = ?
+      `).get(tournamentEntryActionMatch[2], tournament.id);
+      if (!entry) {
+        writeResponse(response, 404, { error: 'Tournament registration not found.' });
+        return;
+      }
+      if (data.action === 'remove') {
+        if (tournament.status !== 'registration' || !['pending', 'accepted'].includes(entry.status)) {
+          writeResponse(response, 409, { error: 'A clan can only be removed before the tournament draw.' });
+          return;
+        }
+        database.prepare("UPDATE tournament_entries SET status = 'removed', reviewed_at = ? WHERE id = ?")
+          .run(now, entry.id);
+        writeResponse(response, 200, { entryId: entry.id, status: 'removed' });
+        return;
+      }
+      if (!['accept', 'decline'].includes(data.action) || tournament.status !== 'registration') {
+        writeResponse(response, 409, { error: 'Choose accept or decline while registration is open.' });
+        return;
+      }
+      if (entry.status !== 'pending') {
+        writeResponse(response, 409, { error: 'This registration has already been reviewed.' });
+        return;
+      }
+      if (data.action === 'accept') {
+        const acceptedCount = database.prepare(`
+          SELECT COUNT(*) AS count FROM tournament_entries
+          WHERE tournament_id = ? AND status = 'accepted'
+        `).get(tournament.id).count;
+        if (acceptedCount >= tournament.max_clans) {
+          writeResponse(response, 409, { error: 'The tournament is already at its clan capacity.' });
+          return;
+        }
+      }
+      const status = data.action === 'accept' ? 'accepted' : 'declined';
+      database.prepare('UPDATE tournament_entries SET status = ?, reviewed_at = ? WHERE id = ?')
+        .run(status, now, entry.id);
+      writeResponse(response, 200, { entryId: entry.id, status });
+      return;
+    }
+
+    const tournamentDrawMatch = /^\/api\/tournament-admin\/([0-9a-f-]{36})\/draw$/i.exec(pathname);
+    if (tournamentDrawMatch && request.method === 'POST') {
+      const access = managedTournament(request, response, tournamentDrawMatch[1]);
+      if (!access) return;
+      const { tournament } = access;
+      if (tournament.status !== 'registration') {
+        writeResponse(response, 409, { error: 'The tournament draw has already been created.' });
+        return;
+      }
+      const pendingCount = database.prepare(`
+        SELECT COUNT(*) AS count FROM tournament_entries
+        WHERE tournament_id = ? AND status = 'pending'
+      `).get(tournament.id).count;
+      if (pendingCount > 0) {
+        writeResponse(response, 409, { error: 'Review every pending clan registration before creating the draw.' });
+        return;
+      }
+      const accepted = database.prepare(`
+        SELECT id, clan_id FROM tournament_entries
+        WHERE tournament_id = ? AND status = 'accepted'
+        ORDER BY created_at, id
+      `).all(tournament.id);
+      if (accepted.length < 2) {
+        writeResponse(response, 400, { error: 'At least two accepted clans are required to create a draw.' });
+        return;
+      }
+      if (accepted.length > tournament.max_clans) {
+        writeResponse(response, 409, { error: 'Accepted clans exceed this tournament’s capacity.' });
+        return;
+      }
+      let orderedEntries = accepted;
+      if (tournament.draw_mode === 'manual') {
+        if (!Array.isArray(data.entryIds)
+            || data.entryIds.length !== accepted.length
+            || data.entryIds.some((id) => typeof id !== 'string')
+            || new Set(data.entryIds).size !== accepted.length
+            || data.entryIds.some((id) => !accepted.some((entry) => entry.id === id))) {
+          writeResponse(response, 400, { error: 'Enter every accepted clan exactly once in the manual draw order.' });
+          return;
+        }
+        orderedEntries = data.entryIds.map((id) => accepted.find((entry) => entry.id === id));
+      }
+      try {
+        database.exec('BEGIN IMMEDIATE');
+        createTournamentDraw(tournament, orderedEntries, now);
+        database.prepare("UPDATE tournaments SET status = 'drawn' WHERE id = ? AND status = 'registration'")
+          .run(tournament.id);
+        database.exec('COMMIT');
+      } catch (error) {
+        database.exec('ROLLBACK');
+        throw error;
+      }
+      const updated = database.prepare('SELECT * FROM tournaments WHERE id = ?').get(tournament.id);
+      writeResponse(response, 200, { tournament: tournamentDetails(database, updated, true) });
+      return;
+    }
+
+    const tournamentMatchUpdate = /^\/api\/tournament-admin\/([0-9a-f-]{36})\/matches\/([0-9a-f-]{36})$/i.exec(pathname);
+    if (tournamentMatchUpdate && request.method === 'PUT') {
+      const access = managedTournament(request, response, tournamentMatchUpdate[1]);
+      if (!access) return;
+      const { tournament } = access;
+      if (tournament.status === 'registration') {
+        writeResponse(response, 409, { error: 'Create the tournament draw before editing matches.' });
+        return;
+      }
+      const match = database.prepare(`
+        SELECT * FROM tournament_matches WHERE id = ? AND tournament_id = ?
+      `).get(tournamentMatchUpdate[2], tournament.id);
+      if (!match) {
+        writeResponse(response, 404, { error: 'Tournament match not found.' });
+        return;
+      }
+      if (!match.home_entry_id || !match.away_entry_id) {
+        writeResponse(response, 409, { error: 'Both clans must be known before scheduling or saving this match.' });
+        return;
+      }
+      const scoreIsEmpty = data.homeScore === null && data.awayScore === null;
+      const validScore = scoreIsEmpty || (
+        Number.isInteger(data.homeScore) && data.homeScore >= 0 && data.homeScore <= 99
+        && Number.isInteger(data.awayScore) && data.awayScore >= 0 && data.awayScore <= 99
+      );
+      if (!validScore) {
+        writeResponse(response, 400, { error: 'Enter both match scores between 0 and 99, or clear both scores.' });
+        return;
+      }
+      if (!scoreIsEmpty && ['elimination', 'playoff'].includes(match.stage)
+          && data.homeScore === data.awayScore) {
+        writeResponse(response, 400, { error: 'Elimination matches must have a winner. Enter the final score after any tiebreak.' });
+        return;
+      }
+      let scheduledAt = null;
+      if (data.scheduledAt !== null && data.scheduledAt !== '') {
+        scheduledAt = typeof data.scheduledAt === 'string' ? Date.parse(data.scheduledAt) : NaN;
+        if (!Number.isFinite(scheduledAt)) {
+          writeResponse(response, 400, { error: 'Enter a valid match date and time.' });
+          return;
+        }
+      }
+      const winnerEntryId = scoreIsEmpty ? null : data.homeScore > data.awayScore
+        ? match.home_entry_id
+        : data.away_entry_id;
+      database.prepare(`
+        UPDATE tournament_matches
+        SET home_score = ?, away_score = ?, scheduled_at = ?, winner_entry_id = ?
+        WHERE id = ?
+      `).run(scoreIsEmpty ? null : data.homeScore, scoreIsEmpty ? null : data.awayScore, scheduledAt, winnerEntryId, match.id);
+      if (match.stage === 'elimination') {
+        reconcileKnockout(tournament.id, 'elimination');
+        const final = database.prepare(`
+          SELECT winner_entry_id FROM tournament_matches
+          WHERE tournament_id = ? AND stage = 'elimination'
+          ORDER BY round_number DESC LIMIT 1
+        `).get(tournament.id);
+        database.prepare('UPDATE tournaments SET status = ? WHERE id = ?')
+          .run(final?.winner_entry_id ? 'completed' : 'drawn', tournament.id);
+      }
+      if (match.stage === 'group') reconcileGroups(tournament.id, now);
+      if (match.stage === 'playoff') {
+        reconcileKnockout(tournament.id, 'playoff');
+        const final = database.prepare(`
+          SELECT winner_entry_id FROM tournament_matches
+          WHERE tournament_id = ? AND stage = 'playoff' AND round_number = 2
+        `).get(tournament.id);
+        if (final?.winner_entry_id) {
+          database.prepare("UPDATE tournaments SET status = 'completed' WHERE id = ?").run(tournament.id);
+        } else {
+          database.prepare("UPDATE tournaments SET status = 'drawn' WHERE id = ?").run(tournament.id);
+        }
+      }
+      if (match.stage === 'league') {
+        const remaining = database.prepare(`
+          SELECT COUNT(*) AS count FROM tournament_matches
+          WHERE tournament_id = ? AND stage = 'league'
+            AND (home_score IS NULL OR away_score IS NULL)
+        `).get(tournament.id).count;
+        if (remaining === 0) database.prepare("UPDATE tournaments SET status = 'completed' WHERE id = ?").run(tournament.id);
+        else database.prepare("UPDATE tournaments SET status = 'drawn' WHERE id = ?").run(tournament.id);
+      }
+      const updated = database.prepare('SELECT * FROM tournaments WHERE id = ?').get(tournament.id);
+      writeResponse(response, 200, { tournament: tournamentDetails(database, updated, true) });
+      return;
+    }
+
+    if (pathname === '/api/admin/events' && request.method === 'POST') {
+      const actor = adminUser(request, response);
+      if (!actor) return;
+      const title = typeof data.title === 'string' ? data.title.trim() : '';
+      const description = typeof data.description === 'string' ? data.description.trim() : '';
+      if (title.length < 3 || title.length > 100 || description.length < 10 || description.length > 5000) {
+        writeResponse(response, 400, { error: 'Enter an event title of 3–100 characters and a description of 10–5000 characters.' });
+        return;
+      }
+      if (!allowRequest(`event-create:${actor.id}`, 10, 60 * 60 * 1000)) {
+        writeResponse(response, 429, { error: 'Too many events created. Try again later.' }, { 'Retry-After': '3600' });
+        return;
+      }
+      let image;
+      try {
+        image = parseClanLogo(data.imageDataUrl, {
+          label: 'event picture',
+          maxBytes: MAX_EVENT_IMAGE_SIZE,
+          maxDimension: 2400,
+          requireSquare: false
+        });
+      } catch (error) {
+        writeResponse(response, 400, { error: error.message });
+        return;
+      }
+      const eventId = crypto.randomUUID();
+      database.prepare(`
+        INSERT INTO events (id, title, description, image_mime, image_blob, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(eventId, title, description, image.mimeType, image.logo, actor.id, now, now);
+      writeResponse(response, 201, { event: {
+        id: eventId,
+        title,
+        description,
+        imageUrl: `/api/events/${encodeURIComponent(eventId)}/image`,
+        createdAt: new Date(now).toISOString(),
+        updatedAt: new Date(now).toISOString()
+      } });
+      return;
+    }
+
+    const adminEventMatch = /^\/api\/admin\/events\/([0-9a-f-]{36})$/i.exec(pathname);
+    if (adminEventMatch && request.method === 'PUT') {
+      const actor = adminUser(request, response);
+      if (!actor) return;
+      const existing = database.prepare('SELECT * FROM events WHERE id = ?').get(adminEventMatch[1]);
+      if (!existing) {
+        writeResponse(response, 404, { error: 'Event not found.' });
+        return;
+      }
+      const title = typeof data.title === 'string' ? data.title.trim() : '';
+      const description = typeof data.description === 'string' ? data.description.trim() : '';
+      if (title.length < 3 || title.length > 100 || description.length < 10 || description.length > 5000) {
+        writeResponse(response, 400, { error: 'Enter an event title of 3–100 characters and a description of 10–5000 characters.' });
+        return;
+      }
+      let image = { mimeType: existing.image_mime, logo: existing.image_blob };
+      if (data.imageDataUrl !== undefined) {
+        try {
+          image = parseClanLogo(data.imageDataUrl, {
+            label: 'event picture',
+            maxBytes: MAX_EVENT_IMAGE_SIZE,
+            maxDimension: 2400,
+            requireSquare: false
+          });
+        } catch (error) {
+          writeResponse(response, 400, { error: error.message });
+          return;
+        }
+      }
+      database.prepare(`
+        UPDATE events
+        SET title = ?, description = ?, image_mime = ?, image_blob = ?, updated_at = ?
+        WHERE id = ?
+      `).run(title, description, image.mimeType, image.logo, now, existing.id);
+      writeResponse(response, 200, { event: {
+        id: existing.id,
+        title,
+        description,
+        imageUrl: `/api/events/${encodeURIComponent(existing.id)}/image`,
+        createdAt: new Date(existing.created_at).toISOString(),
+        updatedAt: new Date(now).toISOString()
+      } });
+      return;
+    }
+
+    if (adminEventMatch && request.method === 'DELETE') {
+      if (!adminUser(request, response)) return;
+      const deleted = database.prepare('DELETE FROM events WHERE id = ?').run(adminEventMatch[1]);
+      if (deleted.changes === 0) {
+        writeResponse(response, 404, { error: 'Event not found.' });
+        return;
+      }
+      writeResponse(response, 200, { deleted: true, eventId: adminEventMatch[1] });
+      return;
+    }
 
     if (pathname === '/api/admin/bans' && request.method === 'POST') {
       const actor = adminUser(request, response);
@@ -1338,12 +2254,14 @@ function createApplication(config, options = {}) {
         );
         database.exec('COMMIT');
       } catch (error) {
-        database.exec('ROLLBACK');
-        if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
-          writeResponse(response, 409, { error: 'An account already uses one or more of those details.' });
-          return;
+        const ownerEmail = (process.env.TFOC_OWNER_EMAIL || '').trim().toLowerCase();
+        if (ownerEmail && email === ownerEmail) {
+          const hasOwner = database.prepare("SELECT 1 FROM users WHERE role = 'owner'").get();
+          if (!hasOwner) {
+            database.prepare("UPDATE users SET role = 'owner' WHERE id = ?").run(userId);
+          }
         }
-        console.error('Account registration failed:', error.message);
+        database.exec('COMMIT');
         writeResponse(response, 500, { error: 'Your registration could not be saved. Please try again later.' });
         return;
       }
