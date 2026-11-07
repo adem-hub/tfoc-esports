@@ -2350,10 +2350,51 @@ function createApplication(config, options = {}) {
   return { server, database };
 }
 
+function seedOwnerAccount(database, config) {
+  const email = (process.env.TFOC_OWNER_EMAIL || '').trim().toLowerCase();
+  if (!email) {
+    return;
+  }
+  if (database.prepare("SELECT 1 FROM users WHERE role = 'owner'").get()) {
+    return;
+  }
+  if (database.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) {
+    return;
+  }
+  const providedPassword = process.env.TFOC_OWNER_PASSWORD || '';
+  const generated = providedPassword.length < 12;
+  const password = generated ? crypto.randomBytes(18).toString('base64url') : providedPassword;
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(password, salt, 32, PASSWORD_OPTIONS);
+  const username = (process.env.TFOC_OWNER_USERNAME || 'owner').trim();
+  const now = Date.now();
+  database.prepare(`
+    INSERT INTO users (
+      id, email, username, player_id, account_type, whatsapp_phone,
+      whatsapp_phone_added_at, role, device_serial_encrypted, password_salt,
+      password_hash, created_at
+    ) VALUES (?, ?, ?, ?, 'Player', ?, ?, 'owner', ?, ?, ?, ?)
+  `).run(
+    crypto.randomUUID(), email, username, 'OWNER-' + crypto.randomBytes(3).toString('hex').toUpperCase(),
+    '+000' + crypto.randomInt(100000000, 999999999), now,
+    encryptValue(crypto.randomBytes(8).toString('hex'), config.encryptionKey),
+    salt.toString('base64url'), hash.toString('base64url'), now
+  );
+  console.log('==== OWNER ACCOUNT CREATED ====');
+  console.log(`Email: ${email}`);
+  if (generated) {
+    console.log(`Password: ${password}`);
+  } else {
+    console.log('Password: the value of TFOC_OWNER_PASSWORD');
+  }
+  console.log('===============================');
+}
+
 if (require.main === module) {
   try {
     const config = createConfig();
-    const { server } = createApplication(config);
+    const { server, database } = createApplication(config);
+    seedOwnerAccount(database, config);
     const host = process.env.HOST || '0.0.0.0';
     const port = Number(process.env.PORT || 3000);
     server.listen(port, host, () => {
