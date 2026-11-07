@@ -218,8 +218,8 @@ a {
 }
 
 .home-news {
-  width: min(810px, 100%);
-  margin-top: 25px;
+  width: min(540px, 100%);
+  margin-top: 12px;
 }
 
 .home-news-heading,
@@ -230,9 +230,9 @@ a {
 
 .home-news-heading {
   justify-content: space-between;
-  margin-bottom: 8px;
+  margin-bottom: 5px;
   color: rgba(255, 255, 255, 0.72);
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.16em;
 }
@@ -242,8 +242,8 @@ a {
 }
 
 .home-news-controls button {
-  width: 28px;
-  height: 25px;
+  width: 23px;
+  height: 21px;
   border: 1px solid rgba(255, 255, 255, 0.3);
   background: rgba(10, 10, 11, 0.3);
   color: #fff;
@@ -273,19 +273,19 @@ a {
   display: flex;
   width: max-content;
   min-width: 100%;
-  gap: 9px;
-  padding-inline: max(0px, calc((100% - 260px) / 2));
+  gap: 7px;
+  padding-inline: max(0px, calc((100% - 170px) / 2));
 }
 
 .home-news-card {
   position: relative;
   display: flex;
-  min-height: 88px;
-  flex: 0 0 clamp(205px, 24vw, 260px);
+  min-height: 54px;
+  flex: 0 0 clamp(140px, 16vw, 170px);
   flex-direction: column;
   justify-content: center;
-  gap: 5px;
-  padding: 12px 15px;
+  gap: 3px;
+  padding: 7px 9px;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.23);
   background: rgba(15, 15, 16, 0.5);
@@ -332,7 +332,7 @@ a {
   min-width: 0;
   flex-direction: column;
   justify-content: center;
-  gap: 5px;
+  gap: 2px;
 }
 
 .home-news-card:not(.is-focused) {
@@ -361,7 +361,7 @@ a {
 
 .home-news-card > span {
   color: #ff6c74;
-  font-size: 8px;
+  font-size: 7px;
   font-weight: 800;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -374,7 +374,7 @@ a {
 .home-news-card strong {
   overflow: hidden;
   font-family: var(--display);
-  font-size: 20px;
+  font-size: 14px;
   line-height: 1;
   text-overflow: ellipsis;
   text-transform: uppercase;
@@ -384,7 +384,7 @@ a {
 .home-news-card small {
   overflow: hidden;
   color: rgba(255, 255, 255, 0.7);
-  font-size: 9px;
+  font-size: 7px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2427,7 +2427,8 @@ a {
   }
 
   .home-news-card {
-    flex-basis: min(240px, 72vw);
+    min-height: 50px;
+    flex-basis: min(155px, 48vw);
   }
 
   .hero-bottom {
