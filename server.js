@@ -12,8 +12,8 @@ const ROOT = __dirname;
 const SESSION_COOKIE = 'tfoc_session';
 const SESSION_DURATION = 7 * 24 * 60 * 60 * 1000;
 const MAX_REQUEST_SIZE = 8 * 1024;
-const MAX_CLAN_REQUEST_SIZE = 700 * 1024;
-const MAX_CLAN_LOGO_SIZE = 512 * 1024;
+const MAX_CLAN_REQUEST_SIZE = 14 * 1024 * 1024;
+const MAX_CLAN_LOGO_SIZE = 10 * 1024 * 1024;
 const MAX_EVENT_REQUEST_SIZE = 1400 * 1024;
 const MAX_EVENT_IMAGE_SIZE = 1024 * 1024;
 const PASSWORD_OPTIONS = { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
@@ -57,6 +57,7 @@ const PUBLIC_FILES = new Map([
   ['/style.css', ['style.css', 'text/css; charset=utf-8']],
   ['/script.js', ['script.js', 'text/javascript; charset=utf-8']],
   ['/Logo.jpg', ['Logo.jpg', 'image/jpeg']],
+  ['/blacklist-icon.svg', ['blacklist-icon.svg', 'image/svg+xml; charset=utf-8']],
   ['/eFootball™ 2027 Official Trailer  Season Update v6.0.0.mp4', ['eFootball™ 2027 Official Trailer  Season Update v6.0.0.mp4', 'video/mp4']]
 ]);
 
@@ -139,6 +140,12 @@ function initializeDatabase(databasePath) {
       joined_at INTEGER NOT NULL,
       PRIMARY KEY (clan_id, user_id)
     );
+    CREATE TABLE IF NOT EXISTS clan_managers (
+      clan_id TEXT PRIMARY KEY REFERENCES clans(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+      granted_by TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      granted_at INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS clan_invitations (
       id TEXT PRIMARY KEY,
       clan_id TEXT NOT NULL REFERENCES clans(id) ON DELETE CASCADE,
@@ -180,7 +187,8 @@ function initializeDatabase(databasePath) {
       created_by TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       manager_id TEXT REFERENCES users(id) ON DELETE SET NULL,
       created_at INTEGER NOT NULL,
-      status TEXT NOT NULL DEFAULT 'registration' CHECK (status IN ('registration', 'drawn', 'completed'))
+      status TEXT NOT NULL DEFAULT 'registration' CHECK (status IN ('registration', 'drawn', 'completed')),
+      published INTEGER NOT NULL DEFAULT 0 CHECK (published IN (0, 1))
     );
     CREATE INDEX IF NOT EXISTS tournaments_by_manager ON tournaments (manager_id, created_at);
     CREATE TABLE IF NOT EXISTS tournament_entries (
@@ -226,6 +234,7 @@ function initializeDatabase(databasePath) {
   `);
   const userColumns = database.prepare('PRAGMA table_info(users)').all();
   const clanColumns = database.prepare('PRAGMA table_info(clans)').all();
+  const tournamentColumns = database.prepare('PRAGMA table_info(tournaments)').all();
   if (userColumns.some((column) => column.name === 'whatsapp_verified_at')) {
     database.exec('ALTER TABLE users RENAME COLUMN whatsapp_verified_at TO whatsapp_phone_added_at');
   }
@@ -240,6 +249,9 @@ function initializeDatabase(databasePath) {
   }
   if (!clanColumns.some((column) => column.name === 'reviewed_at')) {
     database.exec('ALTER TABLE clans ADD COLUMN reviewed_at INTEGER');
+  }
+  if (!tournamentColumns.some((column) => column.name === 'published')) {
+    database.exec('ALTER TABLE tournaments ADD COLUMN published INTEGER NOT NULL DEFAULT 1 CHECK (published IN (0, 1))');
   }
   database.exec('DROP TABLE IF EXISTS pending_registrations');
   const insertContent = database.prepare(`
@@ -293,6 +305,10 @@ function validEmail(value) {
   return typeof value === 'string'
     && value.length <= 254
     && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function isUniqueConstraint(error) {
+  return error.code === 'SQLITE_CONSTRAINT_UNIQUE' || error.errcode === 2067;
 }
 
 function validateRegistration(data) {
@@ -476,8 +492,9 @@ function serveStatic(request, response, pathname) {
 function parseClanLogo(dataUrl, options = {}) {
   const label = options.label || 'clan logo';
   const maxBytes = options.maxBytes || MAX_CLAN_LOGO_SIZE;
-  const maxDimension = options.maxDimension || 1024;
-  const requireSquare = options.requireSquare !== false;
+  const minDimension = options.minDimension || 1;
+  const maxDimension = options.maxDimension || Number.MAX_SAFE_INTEGER;
+  const requireSquare = options.requireSquare === true;
   const match = typeof dataUrl === 'string'
     && /^data:image\/(png|jpeg);base64,([A-Za-z0-9+/]+={0,2})$/.exec(dataUrl);
   if (!match) {
@@ -520,10 +537,10 @@ function parseClanLogo(dataUrl, options = {}) {
   }
 
   if (!Number.isInteger(width) || !Number.isInteger(height)
-      || width < 64 || height < 64 || width > maxDimension || height > maxDimension
+      || width < minDimension || height < minDimension
+      || width > maxDimension || height > maxDimension
       || (requireSquare && width !== height)) {
-    const shape = requireSquare ? 'square ' : '';
-    throw new Error(`Use a ${shape}PNG or JPEG ${label} between 64 × 64 and ${maxDimension} × ${maxDimension} pixels.`);
+    throw new Error(`Choose a valid PNG or JPEG ${label}.`);
   }
   return { mimeType, logo };
 }
@@ -649,6 +666,7 @@ function tournamentDetails(database, tournament, includeAdmin = false) {
     maxClans: tournament.max_clans,
     drawMode: tournament.draw_mode,
     status: tournament.status,
+    published: Boolean(tournament.published),
     logoUrl: `/api/tournaments/${encodeURIComponent(tournament.id)}/logo`,
     createdAt: new Date(tournament.created_at).toISOString(),
     entries,
@@ -711,6 +729,20 @@ function createApplication(config, options = {}) {
       return null;
     }
     return { user, tournament };
+  }
+
+  function canManageClan(clanId, userId) {
+    return Boolean(database.prepare(`
+      SELECT 1 FROM clans
+      JOIN clan_members ON clan_members.clan_id = clans.id AND clan_members.user_id = ?
+      WHERE clans.id = ? AND (
+        (clans.owner_id = ? AND clan_members.role = 'owner')
+        OR EXISTS (
+          SELECT 1 FROM clan_managers
+          WHERE clan_managers.clan_id = clans.id AND clan_managers.user_id = ?
+        )
+      )
+    `).get(userId, clanId, userId, userId));
   }
 
   function addTournamentMatch(tournamentId, stage, round, groupName, slot, homeEntryId, awayEntryId, now) {
@@ -977,6 +1009,22 @@ function createApplication(config, options = {}) {
       return;
     }
 
+    if (request.method === 'GET' && pathname === '/api/admin/clan-managers') {
+      if (!adminUser(request, response)) return;
+      const clans = database.prepare(`
+        SELECT clans.*, owner.username AS owner_username, clan_managers.user_id AS manager_id
+        FROM clans
+        JOIN users AS owner ON owner.id = clans.owner_id
+        LEFT JOIN clan_managers ON clan_managers.clan_id = clans.id
+        ORDER BY clans.name COLLATE NOCASE
+      `).all().map((clan) => ({
+        ...publicClanDetails(database, clan, true),
+        managerId: clan.manager_id
+      }));
+      writeResponse(response, 200, { clans });
+      return;
+    }
+
     if (request.method === 'GET' && pathname === '/api/events') {
       const events = database.prepare(`
         SELECT id, title, description, created_at, updated_at
@@ -1030,7 +1078,7 @@ function createApplication(config, options = {}) {
         JOIN clan_members ON clan_members.clan_id = clans.id
         WHERE clan_members.user_id = ? AND clan_members.role = 'owner'
       `).get(viewer.id) : null;
-      const tournaments = database.prepare('SELECT * FROM tournaments ORDER BY created_at DESC')
+      const tournaments = database.prepare('SELECT * FROM tournaments WHERE published = 1 ORDER BY created_at DESC')
         .all().map((tournament) => {
           const details = tournamentDetails(database, tournament);
           if (ownedClan) {
@@ -1050,9 +1098,11 @@ function createApplication(config, options = {}) {
 
     const tournamentLogoMatch = /^\/api\/tournaments\/([0-9a-f-]{36})\/logo$/i.exec(pathname);
     if (request.method === 'GET' && tournamentLogoMatch) {
-      const tournament = database.prepare('SELECT logo_mime, logo_blob FROM tournaments WHERE id = ?')
+      const tournament = database.prepare('SELECT id, manager_id, published, logo_mime, logo_blob FROM tournaments WHERE id = ?')
         .get(tournamentLogoMatch[1]);
-      if (!tournament) {
+      const viewer = currentUser(request);
+      if (!tournament || (!tournament.published
+          && (!viewer || (viewer.role !== 'owner' && viewer.id !== tournament.manager_id)))) {
         writeResponse(response, 404, { error: 'Tournament not found.' });
         return;
       }
@@ -1135,6 +1185,9 @@ function createApplication(config, options = {}) {
         JOIN users ON users.id = clans.owner_id
         WHERE clan_members.user_id = ?
       `).get(user.id);
+      const isClanManager = Boolean(membership && database.prepare(
+        'SELECT 1 FROM clan_managers WHERE clan_id = ? AND user_id = ?'
+      ).get(membership.id, user.id));
       const invitations = database.prepare(`
         SELECT clan_invitations.id, clan_invitations.created_at, clans.id AS clan_id, clans.name, clans.tag,
           clans.owner_id, owner.username AS owner_username, inviter.username AS inviter_username,
@@ -1158,7 +1211,7 @@ function createApplication(config, options = {}) {
         inviterUsername: invite.inviter_username,
         createdAt: new Date(invite.created_at).toISOString()
       }));
-      const sentInvitations = membership && membership.member_role === 'owner'
+      const sentInvitations = membership && (membership.member_role === 'owner' || isClanManager)
         ? database.prepare(`
           SELECT clan_invitations.id, clan_invitations.created_at, clan_invitations.status,
             invitee.username AS invitee_username, invitee.player_id
@@ -1176,7 +1229,9 @@ function createApplication(config, options = {}) {
       writeResponse(response, 200, {
         clan: membership ? {
           ...publicClanDetails(database, membership, true),
-          memberRole: membership.member_role
+          memberRole: membership.member_role,
+          isClanManager,
+          canManageClan: membership.member_role === 'owner' || isClanManager
         } : null,
         invitations,
         sentInvitations
@@ -1258,6 +1313,23 @@ function createApplication(config, options = {}) {
       return;
     }
 
+    if (pathname === '/api/admin/clan-owners' && request.method === 'GET') {
+      const actor = adminUser(request, response);
+      if (!actor) return;
+      if (actor.role !== 'owner') {
+        writeResponse(response, 403, { error: 'Only the site owner can add clans manually.' });
+        return;
+      }
+      const users = database.prepare(`
+        SELECT users.id, users.username
+        FROM users
+        WHERE NOT EXISTS (SELECT 1 FROM clan_members WHERE clan_members.user_id = users.id)
+        ORDER BY users.username COLLATE NOCASE
+      `).all();
+      writeResponse(response, 200, { users });
+      return;
+    }
+
     if (pathname === '/api/admin/events' && request.method === 'GET') {
       if (!adminUser(request, response)) return;
       const events = database.prepare(`
@@ -1306,6 +1378,7 @@ function createApplication(config, options = {}) {
           ? MAX_EVENT_REQUEST_SIZE
           : pathname === '/api/clans' || /^\/api\/clans\/[0-9a-f-]{36}$/i.test(pathname)
             || pathname === '/api/tournaments'
+            || pathname === '/api/admin/clans/manual'
             ? MAX_CLAN_REQUEST_SIZE
             : MAX_REQUEST_SIZE
       );
@@ -1390,6 +1463,10 @@ function createApplication(config, options = {}) {
         writeResponse(response, 409, { error: 'Registration for this tournament is closed.' });
         return;
       }
+      if (!tournament.published) {
+        writeResponse(response, 409, { error: 'This tournament has not been published by its administrator yet.' });
+        return;
+      }
       const clan = database.prepare(`
         SELECT clans.id, clans.name
         FROM clans
@@ -1429,6 +1506,24 @@ function createApplication(config, options = {}) {
         `).run(entryId, tournament.id, clan.id, now);
       }
       writeResponse(response, 201, { entryId, status: 'pending', clanName: clan.name });
+      return;
+    }
+
+    const tournamentPublishMatch = /^\/api\/tournament-admin\/([0-9a-f-]{36})\/publish$/i.exec(pathname);
+    if (tournamentPublishMatch && request.method === 'POST') {
+      const access = managedTournament(request, response, tournamentPublishMatch[1]);
+      if (!access) return;
+      if (access.tournament.status !== 'registration') {
+        writeResponse(response, 409, { error: 'Only a tournament still in registration can be published.' });
+        return;
+      }
+      if (access.tournament.published) {
+        writeResponse(response, 409, { error: 'This tournament has already been published.' });
+        return;
+      }
+      database.prepare('UPDATE tournaments SET published = 1 WHERE id = ? AND published = 0')
+        .run(access.tournament.id);
+      writeResponse(response, 200, { tournamentId: access.tournament.id, published: true });
       return;
     }
 
@@ -1484,6 +1579,10 @@ function createApplication(config, options = {}) {
       const access = managedTournament(request, response, tournamentDrawMatch[1]);
       if (!access) return;
       const { tournament } = access;
+      if (!tournament.published) {
+        writeResponse(response, 409, { error: 'Publish the tournament before creating its draw.' });
+        return;
+      }
       if (tournament.status !== 'registration') {
         writeResponse(response, 409, { error: 'The tournament draw has already been created.' });
         return;
@@ -1641,6 +1740,7 @@ function createApplication(config, options = {}) {
         image = parseClanLogo(data.imageDataUrl, {
           label: 'event picture',
           maxBytes: MAX_EVENT_IMAGE_SIZE,
+          minDimension: 64,
           maxDimension: 2400,
           requireSquare: false
         });
@@ -1685,6 +1785,7 @@ function createApplication(config, options = {}) {
           image = parseClanLogo(data.imageDataUrl, {
             label: 'event picture',
             maxBytes: MAX_EVENT_IMAGE_SIZE,
+            minDimension: 64,
             maxDimension: 2400,
             requireSquare: false
           });
@@ -1903,6 +2004,132 @@ function createApplication(config, options = {}) {
       return;
     }
 
+    if (pathname === '/api/admin/clans/manual' && request.method === 'POST') {
+      const actor = currentUser(request);
+      if (!actor) {
+        writeResponse(response, 401, { error: 'Sign in as the site owner to add a clan manually.' });
+        return;
+      }
+      if (actor.role !== 'owner') {
+        writeResponse(response, 403, { error: 'Only the site owner can add clans manually.' });
+        return;
+      }
+      const name = typeof data.name === 'string' ? data.name.trim() : '';
+      const tag = typeof data.tag === 'string' ? data.tag.trim().toUpperCase() : '';
+      if (name.length < 3 || name.length > 32 || !/^[A-Z0-9]{2,8}$/.test(tag)
+          || typeof data.ownerId !== 'string' || !/^[0-9a-f-]{36}$/i.test(data.ownerId)) {
+        writeResponse(response, 400, { error: 'Enter a clan name of 3–32 characters, a tag of 2–8 letters or numbers, and choose a clan owner.' });
+        return;
+      }
+      if (data.publicRosterConsent !== true) {
+        writeResponse(response, 400, { error: 'Confirm that you have permission to publish the clan owner’s username and player ID.' });
+        return;
+      }
+      const clanOwner = database.prepare(`
+        SELECT id FROM users WHERE id = ?
+          AND NOT EXISTS (SELECT 1 FROM clan_members WHERE clan_members.user_id = users.id)
+      `).get(data.ownerId);
+      if (!clanOwner) {
+        writeResponse(response, 409, { error: 'Choose a player who does not already belong to a clan.' });
+        return;
+      }
+      let logo;
+      try {
+        logo = parseClanLogo(data.logoDataUrl);
+      } catch (error) {
+        writeResponse(response, 400, { error: error.message });
+        return;
+      }
+      if (!allowRequest(`manual-clan-create:${actor.id}`, 20, 60 * 60 * 1000)) {
+        writeResponse(response, 429, { error: 'Too many manual clan registrations. Try again later.' }, { 'Retry-After': '3600' });
+        return;
+      }
+      const clanId = crypto.randomUUID();
+      try {
+        database.exec('BEGIN IMMEDIATE');
+        const currentOwner = database.prepare(`
+          SELECT id FROM users WHERE id = ?
+            AND NOT EXISTS (SELECT 1 FROM clan_members WHERE clan_members.user_id = users.id)
+        `).get(clanOwner.id);
+        if (!currentOwner) {
+          database.exec('ROLLBACK');
+          writeResponse(response, 409, { error: 'That player joined a clan before this clan could be created.' });
+          return;
+        }
+        database.prepare(`
+          INSERT INTO clans (
+            id, name, tag, logo_mime, logo_blob, owner_id, created_at, approval_status
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'approved')
+        `).run(clanId, name, tag, logo.mimeType, logo.logo, currentOwner.id, now);
+        database.prepare(`
+          INSERT INTO clan_members (clan_id, user_id, role, public_roster_consent_at, joined_at)
+          VALUES (?, ?, 'owner', ?, ?)
+        `).run(clanId, currentOwner.id, now, now);
+        database.exec('COMMIT');
+      } catch (error) {
+        database.exec('ROLLBACK');
+        if (isUniqueConstraint(error)) {
+          writeResponse(response, 409, { error: 'That clan tag is already in use, or the selected player joined another clan.' });
+          return;
+        }
+        console.error('Manual clan registration failed:', error.message);
+        writeResponse(response, 500, { error: 'The clan could not be created. Please try again later.' });
+        return;
+      }
+      const clan = database.prepare(`
+        SELECT clans.*, users.username AS owner_username
+        FROM clans JOIN users ON users.id = clans.owner_id WHERE clans.id = ?
+      `).get(clanId);
+      writeResponse(response, 201, { clan: publicClanDetails(database, clan, true) });
+      return;
+    }
+
+    const clanManagerAssignmentMatch = /^\/api\/admin\/clans\/([0-9a-f-]{36})\/manager$/i.exec(pathname);
+    if (clanManagerAssignmentMatch && request.method === 'PUT') {
+      const actor = adminUser(request, response);
+      if (!actor) return;
+      const clanId = clanManagerAssignmentMatch[1];
+      const clan = database.prepare('SELECT id FROM clans WHERE id = ?')
+        .get(clanId);
+      if (!clan) {
+        writeResponse(response, 404, { error: 'Clan not found.' });
+        return;
+      }
+      if (data.managerId === null) {
+        database.prepare('DELETE FROM clan_managers WHERE clan_id = ?').run(clanId);
+        writeResponse(response, 200, { clanId, managerId: null });
+        return;
+      }
+      if (typeof data.managerId !== 'string' || !/^[0-9a-f-]{36}$/i.test(data.managerId)) {
+        writeResponse(response, 400, { error: 'Choose a clan member to manage this clan.' });
+        return;
+      }
+      const member = database.prepare(`
+        SELECT user_id FROM clan_members
+        WHERE clan_id = ? AND user_id = ? AND role = 'member'
+      `).get(clanId, data.managerId);
+      if (!member) {
+        writeResponse(response, 400, { error: 'The clan manager must be a non-owner member of this clan.' });
+        return;
+      }
+      try {
+        database.prepare(`
+          INSERT INTO clan_managers (clan_id, user_id, granted_by, granted_at)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(clan_id) DO UPDATE SET
+            user_id = excluded.user_id, granted_by = excluded.granted_by, granted_at = excluded.granted_at
+        `).run(clanId, member.user_id, actor.id, now);
+      } catch (error) {
+        if (isUniqueConstraint(error)) {
+          writeResponse(response, 409, { error: 'That player is already the manager of another clan.' });
+          return;
+        }
+        throw error;
+      }
+      writeResponse(response, 200, { clanId, managerId: member.user_id });
+      return;
+    }
+
     if (pathname === '/api/clans' && request.method === 'POST') {
       const owner = currentUser(request);
       if (!owner) {
@@ -1954,7 +2181,7 @@ function createApplication(config, options = {}) {
         database.exec('COMMIT');
       } catch (error) {
         database.exec('ROLLBACK');
-        if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+        if (isUniqueConstraint(error)) {
           writeResponse(response, 409, { error: 'That clan tag is already in use, or you already belong to a clan.' });
           return;
         }
@@ -1979,14 +2206,8 @@ function createApplication(config, options = {}) {
         return;
       }
       const clanId = clanInvitationMatch[1];
-      const clan = database.prepare(`
-        SELECT clans.id, clan_members.role
-        FROM clans
-        JOIN clan_members ON clan_members.clan_id = clans.id
-        WHERE clans.id = ? AND clan_members.user_id = ?
-      `).get(clanId, owner.id);
-      if (!clan || clan.role !== 'owner') {
-        writeResponse(response, 403, { error: 'Only the clan owner can invite players.' });
+      if (!canManageClan(clanId, owner.id)) {
+        writeResponse(response, 403, { error: 'Only the clan owner or assigned clan manager can invite players.' });
         return;
       }
       if (typeof data.username !== 'string' || !/^[A-Za-z0-9_]{3,24}$/.test(data.username)) {
@@ -2027,7 +2248,7 @@ function createApplication(config, options = {}) {
           VALUES (?, ?, ?, ?, 'pending', ?)
         `).run(invitationId, clanId, owner.id, invitee.id, now);
       } catch (error) {
-        if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+        if (isUniqueConstraint(error)) {
           writeResponse(response, 409, { error: 'That player already has a pending invitation.' });
           return;
         }
@@ -2088,7 +2309,7 @@ function createApplication(config, options = {}) {
         database.exec('COMMIT');
       } catch (error) {
         database.exec('ROLLBACK');
-        if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+        if (isUniqueConstraint(error)) {
           writeResponse(response, 409, { error: 'You already belong to a clan.' });
           return;
         }
@@ -2107,13 +2328,10 @@ function createApplication(config, options = {}) {
       }
       const existingClan = database.prepare(`
         SELECT clans.id, clans.logo_mime, clans.logo_blob
-        FROM clans
-        JOIN clan_members ON clan_members.clan_id = clans.id
-        WHERE clans.id = ? AND clans.owner_id = ? AND clan_members.user_id = ?
-          AND clan_members.role = 'owner'
-      `).get(clanUpdateMatch[1], owner.id, owner.id);
-      if (!existingClan) {
-        writeResponse(response, 403, { error: 'Only the clan owner can edit this clan.' });
+        FROM clans WHERE clans.id = ?
+      `).get(clanUpdateMatch[1]);
+      if (!existingClan || !canManageClan(existingClan.id, owner.id)) {
+        writeResponse(response, 403, { error: 'Only the clan owner or assigned clan manager can edit this clan.' });
         return;
       }
       const name = typeof data.name === 'string' ? data.name.trim() : '';
@@ -2140,7 +2358,7 @@ function createApplication(config, options = {}) {
         `)
           .run(name, tag, logo.mimeType, logo.logo, existingClan.id);
       } catch (error) {
-        if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+        if (isUniqueConstraint(error)) {
           writeResponse(response, 409, { error: 'That clan tag is already in use.' });
           return;
         }
@@ -2177,6 +2395,64 @@ function createApplication(config, options = {}) {
       return;
     }
 
+    const clanMemberUpdateMatch = /^\/api\/clans\/([0-9a-f-]{36})\/members\/([0-9a-f-]{36})$/i.exec(pathname);
+    if (clanMemberUpdateMatch && request.method === 'PUT') {
+      const actor = currentUser(request);
+      if (!actor) {
+        writeResponse(response, 401, { error: 'Sign in to edit clan player details.' });
+        return;
+      }
+      const [, clanId, targetUserId] = clanMemberUpdateMatch;
+      if (!canManageClan(clanId, actor.id)) {
+        writeResponse(response, 403, { error: 'Only the clan owner or assigned clan manager can edit player details.' });
+        return;
+      }
+      const target = database.prepare(`
+        SELECT users.id FROM users
+        JOIN clan_members ON clan_members.user_id = users.id
+        WHERE clan_members.clan_id = ? AND users.id = ?
+      `).get(clanId, targetUserId);
+      if (!target) {
+        writeResponse(response, 404, { error: 'Clan member not found.' });
+        return;
+      }
+      const playerId = typeof data.playerId === 'string' ? data.playerId.trim() : '';
+      const deviceSerial = typeof data.deviceSerial === 'string' ? data.deviceSerial.trim() : '';
+      if (playerId.length < 3 || playerId.length > 64
+          || (data.deviceSerial !== undefined && (deviceSerial.length < 3 || deviceSerial.length > 128))) {
+        writeResponse(response, 400, { error: 'Enter a player ID of 3–64 characters and, if changing it, a device serial of 3–128 characters.' });
+        return;
+      }
+      const duplicatePlayerId = database.prepare(`
+        SELECT 1 FROM users WHERE player_id = ? COLLATE NOCASE AND id != ?
+      `).get(playerId, target.id);
+      if (duplicatePlayerId) {
+        writeResponse(response, 409, { error: 'That player ID is already in use.' });
+        return;
+      }
+      try {
+        if (data.deviceSerial === undefined) {
+          database.prepare('UPDATE users SET player_id = ? WHERE id = ?').run(playerId, target.id);
+        } else {
+          database.prepare('UPDATE users SET player_id = ?, device_serial_encrypted = ? WHERE id = ?')
+            .run(playerId, encryptValue(deviceSerial, config.encryptionKey), target.id);
+        }
+      } catch (error) {
+        if (isUniqueConstraint(error)) {
+          writeResponse(response, 409, { error: 'That player ID is already in use.' });
+          return;
+        }
+        throw error;
+      }
+      const updatedClan = database.prepare(`
+        SELECT clans.*, owner.username AS owner_username
+        FROM clans JOIN users AS owner ON owner.id = clans.owner_id
+        WHERE clans.id = ?
+      `).get(clanId);
+      writeResponse(response, 200, { clan: publicClanDetails(database, updatedClan, true) });
+      return;
+    }
+
     const clanMemberDeleteMatch = /^\/api\/clans\/([0-9a-f-]{36})\/members\/([0-9a-f-]{36})$/i.exec(pathname);
     if (clanMemberDeleteMatch && request.method === 'DELETE') {
       const actor = currentUser(request);
@@ -2197,10 +2473,12 @@ function createApplication(config, options = {}) {
         writeResponse(response, 400, { error: 'The clan owner must delete the clan or transfer ownership before leaving.' });
         return;
       }
-      if (actor.id !== targetUserId && actorMembership.role !== 'owner') {
-        writeResponse(response, 403, { error: 'Only the clan owner can remove another player.' });
+      if (actor.id !== targetUserId && !canManageClan(clanId, actor.id)) {
+        writeResponse(response, 403, { error: 'Only the clan owner or assigned clan manager can remove another player.' });
         return;
       }
+      database.prepare('DELETE FROM clan_managers WHERE clan_id = ? AND user_id = ?')
+        .run(clanId, targetUserId);
       database.prepare('DELETE FROM clan_members WHERE clan_id = ? AND user_id = ?').run(clanId, targetUserId);
       writeResponse(response, 200, { removed: true });
       return;
@@ -2262,7 +2540,7 @@ function createApplication(config, options = {}) {
         database.exec('COMMIT');
       } catch (error) {
         database.exec('ROLLBACK');
-        if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+        if (isUniqueConstraint(error)) {
           writeResponse(response, 409, { error: 'An account already uses one or more of those details.' });
           return;
         }
@@ -2358,10 +2636,7 @@ function seedOwnerAccount(database, config) {
   if (database.prepare("SELECT 1 FROM users WHERE role = 'owner'").get()) {
     return;
   }
-  const existingUser = database.prepare('SELECT id FROM users WHERE email = ?').get(email);
-  if (existingUser) {
-    database.prepare("UPDATE users SET role = 'owner' WHERE id = ?").run(existingUser.id);
-    console.log(`Existing account ${email} was promoted to owner.`);
+  if (database.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) {
     return;
   }
   const providedPassword = process.env.TFOC_OWNER_PASSWORD || '';
