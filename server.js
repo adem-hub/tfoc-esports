@@ -2252,8 +2252,6 @@ function createApplication(config, options = {}) {
           encryptValue(data.deviceSerial.trim(), config.encryptionKey),
           passwordSalt.toString('base64url'), passwordHash.toString('base64url'), now
         );
-        database.exec('COMMIT');
-      } catch (error) {
         const ownerEmail = (process.env.TFOC_OWNER_EMAIL || '').trim().toLowerCase();
         if (ownerEmail && email === ownerEmail) {
           const hasOwner = database.prepare("SELECT 1 FROM users WHERE role = 'owner'").get();
@@ -2262,6 +2260,13 @@ function createApplication(config, options = {}) {
           }
         }
         database.exec('COMMIT');
+      } catch (error) {
+        database.exec('ROLLBACK');
+        if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+          writeResponse(response, 409, { error: 'An account already uses one or more of those details.' });
+          return;
+        }
+        console.error('Account registration failed:', error.message);
         writeResponse(response, 500, { error: 'Your registration could not be saved. Please try again later.' });
         return;
       }
