@@ -1431,7 +1431,7 @@ if (require.main === module) {
   try {
     const config = createConfig();
     const { server } = createApplication(config);
-    const host = process.env.HOST || '127.0.0.1';
+    const host = process.env.HOST || '0.0.0.0';
     const port = Number(process.env.PORT || 3000);
     server.listen(port, host, () => {
       console.log(`TFOC website listening on http://${host}:${port}`);

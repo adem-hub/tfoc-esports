@@ -6,8 +6,8 @@
     "node": ">=24.0.0"
   },
   "scripts": {
-    "start": "node --env-file=.env server.js",
-    "bootstrap-owner": "node --env-file=.env bootstrap-owner.js",
+    "start": "node --env-file-if-exists=.env server.js",
+    "bootstrap-owner": "node --env-file-if-exists=.env bootstrap-owner.js",
     "test": "node --test"
   }
 }
