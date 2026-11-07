@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#101011">
+  <meta name="description" content="TFOC — Tunisian Federation of Clans. Play together. Compete as one.">
+  <title>TFOC Esports | Tunisian Federation of Clans</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800;900&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="#home" aria-label="TFOC Esports home">
+      <img class="brand-logo" src="Logo.jpg" alt="Tunisian Federation of Clans emblem" width="960" height="960">
+      <span class="brand-copy">
+        <strong>TFOC</strong>
+        <span>TUNISIAN FEDERATION<br>OF CLANS</span>
+      </span>
+    </a>
+
+    <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="primary-navigation" aria-label="Open navigation">
+      <span></span>
+      <span></span>
+    </button>
+
+    <nav class="navigation" id="primary-navigation" aria-label="Main navigation">
+      <a class="navigation-link" href="#home">Home</a>
+      <a class="navigation-link" href="#about">About</a>
+      <a class="navigation-link" href="#clans">Clans</a>
+      <a class="navigation-link" href="#games">Our focus</a>
+      <a class="navigation-link" href="#rules">Rules</a>
+      <a class="navigation-link" href="#blacklist">Blacklist</a>
+      <a class="navigation-cta" href="#account">Create an account <span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero" id="home" aria-labelledby="hero-title">
+      <video class="hero-video" autoplay muted loop playsinline preload="metadata" poster="Logo.jpg" aria-hidden="true">
+        <source src="eFootball™%202027%20Official%20Trailer%20%20Season%20Update%20v6.0.0.mp4" type="video/mp4">
+      </video>
+      <div class="hero-shade"></div>
+      <div class="hero-content">
+        <p class="eyebrow"><span class="eyebrow-line"></span> <span data-site-content="hero.eyebrow">TUNISIAN ESPORTS COMMUNITY</span></p>
+        <h1 id="hero-title"><span data-site-content="hero.titleFirst">PLAY AS ONE.</span><br><span data-site-content="hero.titleSecond">RISE TOGETHER.</span></h1>
+        <p class="hero-description" data-site-content="hero.description">The home of Tunisian clans, players, and competitive gaming.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="#account"><span data-site-content="hero.join">Join TFOC</span> <span aria-hidden="true">↘</span></a>
+          <a class="button button-quiet" href="#games" data-site-content="hero.explore">Explore our focus</a>
+        </div>
+      </div>
+      <div class="hero-bottom">
+        <span data-site-content="hero.footer">UNITED BY THE GAME</span>
+        <a href="#about" aria-label="Scroll to about TFOC"><span class="scroll-mark"></span> <span data-site-content="hero.scroll">SCROLL TO EXPLORE</span></a>
+        <span class="hero-index">TUNISIA <b> / </b> ESPORTS</span>
+      </div>
+    </section>
+
+    <section class="intro section-wrap" id="about">
+      <div class="section-kicker"><span>01</span> <span data-site-content="about.kicker">WHO WE ARE</span></div>
+      <div class="intro-content">
+        <h2><span data-site-content="about.titleFirst">ONE COMMUNITY.</span><br><span data-site-content="about.titleSecond">COUNTLESS WAYS TO PLAY.</span></h2>
+        <div class="intro-copy">
+          <p data-site-content="about.paragraphFirst">TFOC — the Tunisian Federation of Clans — brings players together through a shared love of gaming and competition.</p>
+          <p data-site-content="about.paragraphSecond">From the first match to the final whistle, we believe the best moments happen when we play as one.</p>
+          <a class="text-link" href="#community"><span data-site-content="about.link">Be part of the team</span> <span aria-hidden="true">→</span></a>
+        </div>
+      </div>
+    </section>
+
+    <section class="clans-section" id="clans">
+      <div class="section-wrap">
+        <div class="clans-heading">
+          <div>
+            <div class="section-kicker"><span>02</span> OFFICIAL TFOC CLANS</div>
+            <h2>ONE TAG.<br><span>ONE TEAM.</span></h2>
+          </div>
+          <div class="clans-heading-copy">
+            <p>Browse registered clans approved by TFOC administrators. Rosters show a player’s username and game ID only.</p>
+            <a class="button button-primary" href="#account">Register your clan <span aria-hidden="true">↗</span></a>
+          </div>
+        </div>
+        <div class="public-clan-list" id="public-clan-list" aria-live="polite">
+          <p class="clan-list-status">Loading clans…</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="focus-section" id="games">
+      <div class="section-wrap">
+        <div class="focus-heading">
+          <div>
+            <div class="section-kicker"><span>02</span> <span data-site-content="focus.kicker">THE TFOC SPIRIT</span></div>
+            <h2><span data-site-content="focus.titleFirst">BUILT AROUND</span><br><span data-site-content="focus.titleSecond">THE GAME.</span></h2>
+          </div>
+          <p data-site-content="focus.description">More than a match. A place to connect, improve, and represent.</p>
+        </div>
+        <div class="focus-grid">
+          <article class="focus-card">
+            <span class="card-number">01 / PLAY</span>
+            <div class="card-symbol" aria-hidden="true">◎</div>
+            <h3 data-site-content="focus.playTitle">Play together</h3>
+            <p data-site-content="focus.playDescription">Find your people and enjoy the game side by side.</p>
+            <span class="card-arrow" aria-hidden="true">↗</span>
+          </article>
+          <article class="focus-card focus-card-accent">
+            <span class="card-number">02 / COMPETE</span>
+            <div class="card-symbol" aria-hidden="true">✳</div>
+            <h3 data-site-content="focus.competeTitle">Compete with pride</h3>
+            <p data-site-content="focus.competeDescription">Bring your focus, back your teammates, and give every match your best.</p>
+            <span class="card-arrow" aria-hidden="true">↗</span>
+          </article>
+          <article class="focus-card">
+            <span class="card-number">03 / CONNECT</span>
+            <div class="card-symbol" aria-hidden="true">⌁</div>
+            <h3 data-site-content="focus.connectTitle">Grow the community</h3>
+            <p data-site-content="focus.connectDescription">Make new connections and help Tunisian esports move forward.</p>
+            <span class="card-arrow" aria-hidden="true">↗</span>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="rules-section" id="rules" lang="ar" dir="rtl" aria-labelledby="rules-title">
+      <div class="section-wrap">
+        <div class="rules-heading">
+          <div class="section-kicker"><span>04</span> قوانين البطولة</div>
+          <h2 id="rules-title">اللعب النظيف.<br><span>احترام للجميع.</span></h2>
+          <p>يرجى قراءة القوانين التالية والالتزام بها طوال المنافسة. تسري هذه القواعد على اللاعبين والقادة والإداريين.</p>
+        </div>
+
+        <div class="rules-grid">
+          <article class="rules-card rules-card-ethics">
+            <header class="rules-card-heading">
+              <span class="rules-card-number">01</span>
+              <div>
+                <p>RÈGLES ÉTHIQUES &amp; CONDUITE</p>
+                <h3>القوانين الأخلاقية والسلوك</h3>
+              </div>
+            </header>
+            <ul class="rules-list">
+              <li>يسمح بالكلام والمناقشة والاحتجاج لقائد الفريق فقط. ولا يسمح لأي لاعب آخر بذلك من كلا الطرفين، وفي حال المخالفة يوجه إنذار للاعب.</li>
+              <li>يمنع النقاش أو الاحتجاج بين قائدي الفريقين أو اللاعبين. يوجه أي اعتراض أو استفسار حصراً إلى الحكم.</li>
+              <li>يجب الحفاظ على بيئة لعب شريفة واحترام الخصم والمنظم. يمنع استخدام الرموز التعبيرية (Emojis/Emotes) بطريقة استفزازية في التعليقات، وقد يؤدي ذلك إلى إنذار. وفي حالة التكرار يتم الطرد والاستبدال من المواجهة.</li>
+              <li>يحق لقائد الفريق الاعتراض على قرارات المنظم داخل اللقاء إذا اعتبر أنها تخالف القوانين المعتمدة، ويرفع الاعتراض إلى مشرف البطولة لدراسة الحالة واتخاذ القرار المناسب.</li>
+            </ul>
+            <div class="appeal-deadlines">
+              <h4>⏱️ مدة الطعن</h4>
+              <p>يسمح بتقديم الاعتراضات خلال مدة أقصاها:</p>
+              <ul>
+                <li><strong>طعن عادي</strong> (خطأ في فيديو أو معلومة): خلال <strong>24 ساعة</strong>.</li>
+                <li><strong>طعن يخص لاعباً في كلانين أو فو كونت:</strong> خلال <strong>48 ساعة</strong>.</li>
+              </ul>
+            </div>
+          </article>
+
+          <article class="rules-card rules-card-match">
+            <header class="rules-card-heading">
+              <span class="rules-card-number">02</span>
+              <div>
+                <p>RÈGLES DU MATCH</p>
+                <h3>قوانين المواجهة</h3>
+              </div>
+            </header>
+            <ol class="rules-list match-rules">
+              <li><strong>القرعة:</strong> القرعة إجبارية حتى لو اتفق الأدمن.</li>
+              <li><strong>التبديل قبل الربط:</strong> يسمح بتبديل الخصوم إذا لم يتم الربط بين اللاعبين. وإذا تم اللعب، يصبح كلا اللاعبين المتبقيين دون خصم خصمين تلقائياً، ويستكمل باقي اللاعبين بالقرعة.</li>
+              <li><strong>تصوير الفيديو:</strong> إرسال الفيديو ضروري في كل الحالات، سواء في التعادل أو الخسارة.</li>
+              <li><strong>مدة المواجهة:</strong> 48 ساعة فقط.</li>
+              <li><strong>إضافة اللاعبين:</strong> عدم إضافة اللاعبين بعد فتح المواجهة من طرف الأدمن لأكثر من 16 ساعة يجعل الكلان خاسراً في تلك المواجهة.</li>
+              <li><strong>غياب اللاعب:</strong> إذا تجاوز غياب اللاعب 24 ساعة من بدء المواجهة، يستبدل إجبارياً من قبل القائد أو حكم اللقاء. عدد التبديلات المسموح بها 3 فقط.</li>
+              <li><strong>الإنذارات والطرد:</strong> إنذار اللاعب مرتين يعرضه للطرد من المواجهة واستبداله بلاعب آخر. وفي حال اكتمال عدد التبديلات يتعرض الكلان للخسارة.</li>
+              <li><strong>القائمة والأيدي:</strong> إذا كان الخطأ في رقم القائمة فقط في الأيدي والرقم التسلسلي، أو كان هناك تشابه بين القائمة وتصوير اللاعب، فلا ضرر. أما إذا كان الخطأ أكثر من ذلك فيستبدل اللاعب إجبارياً، وإذا انتهت التبديلات يعتبر الكلان خاسراً في المباراة.</li>
+              <li><strong>الانقطاع (Déconnexion):</strong> إذا خرج اللاعب بسبب سوء الإنترنت، يجب إيقاف دليل فيديو على ذلك، ثم تستأنف المباراة بنفس النتيجة قبل الخروج مع استكمال الوقت المتبقي. خلاف ذلك، إنذار في المرة الأولى، وفي المرة الثانية يضاف هدف.</li>
+              <li><strong>البطاقة الحمراء للخصم:</strong> إذا خرج خصمك من المواجهة ولديه بطاقة حمراء، تستفيد من هدف إضافي عن كل بطاقة، مع وجود دليل.</li>
+              <li><strong>ضربة الجزاء والخروج:</strong> إذا خرج خصمك لحظة حصولك على ضربة جزاء، يحق لك الحصول على هدف إضافي عند وجود دليل.</li>
+              <li><strong>الاحتفال (Célébration):</strong> يمنع الاحتفال؛ في المرة الأولى يحصل اللاعب على بطاقة صفراء، وفي حالة التكرار يحصل خصمه على هدف.</li>
+              <li><strong>تضييع الوقت (Anti-jeu / Gain de temps):</strong> يمنع تضييع الوقت بين الدفاع والحارس لأكثر من تمريرتين، وبين RB وLB لأكثر من 3 تمريرات. ويعد اللعب السلبي لأكثر من 3 دقائق تضييعاً للوقت عند وجود محاولة تمرير.</li>
+            </ol>
+            <p class="rules-note"><strong>تنبيه:</strong> إذا كانت نتيجة اللقاء متعادلة، يضاف هدف للخصم إذا كان اللاعب متقدماً في نتيجة إعادة اللقاء.</p>
+            <ol class="rules-list match-rules" start="14">
+              <li><strong>تحديد الموعد:</strong> على كل لاعب يضاف للمواجهة خلال الجولة تحديد موعد مع خصمه خلال مدة لا تزيد عن 24 ساعة، والاتفاق معه على موعد اللعب. في حال عدم التواجد وعدم تحديد الموعد للخصم، يتم تبديل اللاعب.</li>
+              <li><strong>التأخر عن الموعد:</strong> إذا تم تحديد موعد والاتفاق بين الخصمين، وتغيب أحد الطرفين لأكثر من 10 دقائق عن الموعد، يحصل على بطاقة صفراء. وفي المرة الثانية يستبدل من المواجهة. عدد التبديلات خلال المواجهة 3 فقط، وإذا استوفى الطرفان التبديلات يحصل فورفي.</li>
+              <li><strong>إرجاع البديل:</strong> يمنع إرجاع لاعب كبديل بعد تغييره في المواجهة.</li>
+              <li><strong>البينج (Ping):</strong> إذا تجاوز Ping الخصم 100، يؤجل اللقاء إلى وقت آخر. تكرار الحالة نفسها يؤدي إلى تبديل فوري من قائد كلانه.</li>
+              <li><strong>الإشعارات:</strong> يحق للخصم طلب تصوير الإشعارات بين الشوطين.</li>
+              <li><strong>قياس الإنترنت:</strong> يحق للخصم طلب قياس الإنترنت مع فيديو يتضمن جميع المعلومات.</li>
+            </ol>
+          </article>
+
+          <article class="rules-card rules-card-sanctions">
+            <header class="rules-card-heading">
+              <span class="rules-card-number">03</span>
+              <div>
+                <p>SANCTIONS &amp; PÉNALITÉS</p>
+                <h3>العقوبات والجزاءات</h3>
+              </div>
+            </header>
+            <ol class="rules-list sanction-rules">
+              <li><strong>المشاركة مع أكثر من كلان:</strong> يعاقب كل لاعب يشارك مع كلانين مختلفين، سواء باسم واحد أو بحساب وهمي، في أي اتحاد مهني أو بطولة، بالإيقاف لمدة <strong>شهرين</strong>، مع احتساب فورفي خلال المواجهة (طاغ للخصم دليل على نية اللاعب للعب المواجهة).</li>
+              <li><strong>سب الذات الإلهية والوالدين:</strong> يعاقب كل لاعب يسب الذات الإلهية أو الوالدين أو يشتم بأي شكل خلال المباراة أو في الخاص بخسارة المباراة، بالإضافة إلى الإيقاف لمدة <strong>4 أشهر</strong>.</li>
+              <li><strong>سب الأدمن والقادة:</strong> يمنع على الأدمن السب أو الشتم داخل جروب القادة أو جروب المواجهة أو الخاص. وتترتب على المخالفة عقوبة وإيقاف لمدة <strong>شهر واحد</strong> عن قيادة الكلان داخل بطولات الفدرالية العربية.</li>
+              <li><strong>التحايل والتضليل:</strong> كل أنواع التحايل على الحكم أو محاولة تضليله مخالفة جسيمة، وتؤدي إلى الطرد من المواجهة وخسارة المباراة، بالإضافة إلى الإيقاف <strong>لمباراتين</strong> رسميتين داخل بطولات الفدرالية العربية.</li>
+              <li><strong>الشتم الموجه للمسؤولين:</strong> مسؤولو البطولة والإطار المسير والتحكيمي خط أحمر. أي سب أو شتم، مهما كان، في جروبات المواجهة أو القادة أو الخاص خلال أي بطولة يعرض اللاعب أو القائد للإيقاف <strong>شهرين</strong>. وإذا أحس الأدمن بالظلم من الحكم، يمكنه مراجعة لجنة التحكيم.</li>
+              <li><strong>الإساءة والتشهير:</strong> يقصى الكلان مباشرة من البطولة في حال نشر أي محتوى يتضمن إساءة إلى أي شخص أو أي اتحادية أو إلى الفدرالية العربية.</li>
+              <li><strong>التلاعب بالنتائج (Match-fixing / Faux matchs):</strong> إذا لعب اللاعب (X) ضد اللاعب (Y)، وأخذ اللاعب (Y) فورفي على اللاعب (X) بسبب السب، ثم عُثر على لاعب (Y) وهمي، فاللقاء سلبي ولا تحتسب نتيجته، ويعاقب اللاعبان في كل حالة حسب القوانين المعمول بها.</li>
+              <li><strong>⚠️ نظام البطاقات تراكمي:</strong> إنذار في المباراة الأولى وإنذار في المباراة الثانية يؤديان إلى الغياب عن المباراة الثالثة.</li>
+              <li><strong>قرار لجنة الطعن:</strong> يحق لأي أدمن تقديم الطعن لدى لجنة الفدرالية العربية للبث النهائي في الأمر. وأي قرار يصدر عن اللجنة العليا للفدرالية العربية غير قابل للطعن بعد ذلك.</li>
+              <li><strong>⛔ اللعب باستخدام VPN ممنوع:</strong> إذا تبين ذلك، يخسر اللاعب اللقاء مباشرة.</li>
+            </ol>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="blacklist-section" id="blacklist" aria-labelledby="blacklist-title">
+      <div class="section-wrap">
+        <div class="blacklist-heading">
+          <div>
+            <div class="section-kicker"><span>05</span> COMMUNITY NOTICE</div>
+            <h2 id="blacklist-title">PLAYER<br><span>BLACKLIST.</span></h2>
+          </div>
+          <p>Current disciplinary records published by TFOC administrators. Blacklist entries are public records only and do not restrict access to this website. Device serial numbers are kept private.</p>
+        </div>
+        <div class="public-blacklist" id="public-blacklist" aria-live="polite">
+          <p class="blacklist-list-status">Loading blacklist…</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="community section-wrap" id="community">
+      <img class="community-logo" src="Logo.jpg" alt="" width="960" height="960" loading="lazy">
+      <div class="community-copy">
+        <div class="section-kicker"><span>03</span> <span data-site-content="community.kicker">YOUR NEXT MATCH STARTS HERE</span></div>
+        <h2><span data-site-content="community.titleFirst">READY TO</span><br><span data-site-content="community.titleSecond">JOIN US?</span></h2>
+        <p data-site-content="community.description">Come meet the community and find your place in the game.</p>
+        <a class="button button-primary" href="#account"><span data-site-content="community.join">Create your account</span> <span aria-hidden="true">↗</span></a>
+        <div class="community-contact-links" aria-label="Contact TFOC">
+          <a class="button button-quiet" href="https://www.facebook.com/profile.php?id=100078931575511" target="_blank" rel="noopener noreferrer">
+            Facebook <span aria-hidden="true">↗</span>
+          </a>
+          <a class="button button-quiet" href="https://chat.whatsapp.com/Gx17ms4hEciESZ3z1cOslf" target="_blank" rel="noopener noreferrer">
+            WhatsApp community <span aria-hidden="true">↗</span>
+          </a>
+        </div>
+      </div>
+      <div class="community-stamp" aria-hidden="true">TFOC<br>EST. TUNISIA</div>
+    </section>
+
+    <section class="account-section" id="account">
+      <div class="account-layout">
+        <div class="account-intro">
+          <div class="section-kicker"><span>04</span> YOUR PLACE IN TFOC</div>
+          <h2>JOIN THE<br><span>COMMUNITY.</span></h2>
+          <p data-site-content="account.description">Create a player account with your email, player ID, and WhatsApp number. Your WhatsApp number is collected for contact only; no verification is required.</p>
+          <p class="privacy-note">Your device serial number is encrypted before it is stored. Your WhatsApp number must be in international format, for example +21612345678.</p>
+        </div>
+
+        <div class="account-panel">
+          <div class="account-tabs" role="tablist" aria-label="Account options">
+            <button class="account-tab is-active" id="register-tab" type="button" role="tab" aria-selected="true" aria-controls="register-panel" data-account-tab="register">Create account</button>
+            <button class="account-tab" id="login-tab" type="button" role="tab" aria-selected="false" aria-controls="login-panel" data-account-tab="login">Sign in</button>
+          </div>
+
+          <div class="account-message" id="account-message" role="status" aria-live="polite" hidden></div>
+
+          <form class="account-form" id="register-form" data-account-panel="register">
+            <div class="form-grid">
+              <label class="form-field">
+                <span>Username</span>
+                <input name="username" type="text" autocomplete="username" minlength="3" maxlength="24" pattern="[A-Za-z0-9_]{3,24}" required>
+                <small>3–24 letters, numbers, or underscores.</small>
+              </label>
+              <label class="form-field">
+                <span>Email address</span>
+                <input name="email" type="email" autocomplete="email" maxlength="254" required>
+              </label>
+              <label class="form-field">
+                <span>Player ID</span>
+                <input name="playerId" type="text" autocomplete="off" minlength="3" maxlength="64" required>
+              </label>
+              <label class="form-field">
+                <span>Account type</span>
+                <select name="accountType" required>
+                  <option value="Player">Player</option>
+                </select>
+              </label>
+              <label class="form-field">
+                <span>WhatsApp number</span>
+                <input name="whatsappPhone" type="tel" autocomplete="tel" placeholder="+21612345678" pattern="\+[1-9][0-9]{7,14}" required>
+                <small>Use the number connected to your WhatsApp account.</small>
+              </label>
+              <label class="form-field">
+                <span>Phone device serial number</span>
+                <input name="deviceSerial" type="password" autocomplete="off" minlength="3" maxlength="128" required>
+                <small>Stored encrypted. We never show it back in your profile.</small>
+              </label>
+              <label class="form-field form-field-full">
+                <span>Password</span>
+                <input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required>
+                <small>Use at least 12 characters.</small>
+              </label>
+            </div>
+            <button class="button button-primary account-submit" type="submit">Create account <span aria-hidden="true">→</span></button>
+          </form>
+
+          <form class="account-form" id="login-form" data-account-panel="login" hidden>
+            <div class="form-grid form-grid-login">
+              <label class="form-field form-field-full">
+                <span>Email address</span>
+                <input name="email" type="email" autocomplete="username" maxlength="254" required>
+              </label>
+              <label class="form-field form-field-full">
+                <span>Password</span>
+                <input name="password" type="password" autocomplete="current-password" maxlength="128" required>
+              </label>
+            </div>
+            <button class="button button-primary account-submit" type="submit">Sign in <span aria-hidden="true">→</span></button>
+          </form>
+
+          <div class="account-profile" id="account-profile" hidden>
+            <div class="profile-heading"><span class="profile-status"></span><span>ACCOUNT READY</span></div>
+            <h3 id="profile-username"></h3>
+            <dl class="profile-details">
+              <div><dt>Email</dt><dd id="profile-email"></dd></div>
+              <div><dt>Player ID</dt><dd id="profile-player-id"></dd></div>
+              <div><dt>WhatsApp</dt><dd id="profile-whatsapp"></dd></div>
+              <div><dt>Type</dt><dd>Player</dd></div>
+              <div><dt>Device serial</dt><dd>Encrypted</dd></div>
+            </dl>
+            <button class="button button-quiet account-signout" id="signout-button" type="button">Sign out</button>
+            <a class="button button-primary admin-entry" id="open-admin-dashboard" href="#admin-dashboard" hidden>Open admin dashboard <span aria-hidden="true">↗</span></a>
+            <div class="clan-manager" id="clan-manager" hidden>
+              <div class="clan-manager-heading">
+                <span>YOUR CLAN</span>
+                <small>Only admin-approved clans appear in the official public list.</small>
+              </div>
+              <div class="clan-invitations" id="clan-invitations" hidden>
+                <h4>Clan invitations</h4>
+                <div id="incoming-clan-invitations"></div>
+              </div>
+              <form class="clan-form" id="create-clan-form">
+                <h4>Register a clan</h4>
+                <p>Register your clan with a logo, name, and tag. An admin must approve it before it appears in the official list.</p>
+                <div class="form-grid">
+                  <label class="form-field">
+                    <span>Clan name</span>
+                    <input name="name" type="text" minlength="3" maxlength="32" required>
+                  </label>
+                  <label class="form-field">
+                    <span>Clan tag</span>
+                    <input name="tag" type="text" minlength="2" maxlength="8" pattern="[A-Za-z0-9]{2,8}" required>
+                    <small>2–8 letters or numbers.</small>
+                  </label>
+                  <label class="form-field form-field-full">
+                    <span>Square clan logo</span>
+                    <input name="logo" type="file" accept="image/png,image/jpeg" required>
+                    <small>PNG or JPEG, square, 64–1024 pixels, up to 512 KB.</small>
+                  </label>
+                </div>
+                <label class="clan-consent">
+                  <input name="publicRosterConsent" type="checkbox" required>
+                  <span>I agree that my username and player ID will be listed on this clan’s public roster. My phone serial number will never be listed.</span>
+                </label>
+                <button class="button button-primary account-submit" type="submit">Register clan <span aria-hidden="true">→</span></button>
+              </form>
+              <div class="my-clan-panel" id="my-clan-panel" hidden></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="admin-section" id="admin-dashboard" aria-labelledby="admin-title" hidden>
+      <div class="admin-layout">
+        <div class="admin-heading">
+          <div class="section-kicker"><span>ADMIN</span> OWNER CONTROLLED</div>
+          <h2 id="admin-title">SITE<br><span>CONTROL.</span></h2>
+          <p>Manage player accounts and update public site text. Only the owner can grant or revoke administrator access.</p>
+          <div class="account-message admin-message" id="admin-message" role="status" aria-live="polite" hidden></div>
+        </div>
+        <div class="admin-panel">
+          <div class="admin-panel-heading">
+            <h3>Public site content</h3>
+            <p>Changes appear on the website immediately.</p>
+          </div>
+          <form id="site-content-form" class="admin-form">
+            <label class="form-field">
+              <span>Text to edit</span>
+              <select id="site-content-key" name="key" required></select>
+            </label>
+            <label class="form-field admin-content-value">
+              <span>New text</span>
+              <textarea id="site-content-value" name="value" maxlength="300" rows="3" required></textarea>
+            </label>
+            <button class="button button-primary admin-submit" type="submit">Save website text <span aria-hidden="true">→</span></button>
+          </form>
+        </div>
+        <div class="admin-panel">
+          <div class="admin-panel-heading">
+            <h3>Add blacklist record</h3>
+            <p>Choose an existing player. The serial number is copied from their encrypted account record and remains visible to admins only. This record does not block account or site access.</p>
+          </div>
+          <form id="create-ban-form" class="admin-form">
+            <label class="form-field">
+              <span>Player username</span>
+              <input name="username" type="text" minlength="3" maxlength="24" pattern="[A-Za-z0-9_]{3,24}" required>
+            </label>
+            <label class="form-field">
+              <span>Ban period in days</span>
+              <input id="ban-duration-days" name="durationDays" type="number" min="1" max="36500" step="1" value="7" required>
+            </label>
+            <label class="clan-consent">
+              <input id="ban-permanent" name="permanent" type="checkbox">
+              <span>Permanent record (no expiry)</span>
+            </label>
+            <label class="form-field">
+              <span>Reason for the record</span>
+              <textarea name="reason" minlength="3" maxlength="500" rows="3" required></textarea>
+            </label>
+            <button class="button button-primary admin-submit" type="submit">Add public record</button>
+          </form>
+        </div>
+        <div class="admin-panel">
+          <div class="admin-panel-heading">
+            <h3>Blacklist records</h3>
+            <p>Review active, expired, and revoked records. Device serial numbers are only returned to this admin view.</p>
+          </div>
+          <div class="admin-ban-list" id="admin-ban-list" aria-live="polite"></div>
+        </div>
+        <div class="admin-panel">
+          <div class="admin-panel-heading">
+            <h3>Clan approvals</h3>
+            <p>Review clan registrations before they appear in the official public list.</p>
+          </div>
+          <div class="admin-clan-list" id="admin-clan-list" aria-live="polite"></div>
+        </div>
+        <div class="admin-panel">
+          <div class="admin-panel-heading">
+            <h3>Player accounts</h3>
+            <p>Promote trusted players to admin, or remove accounts.</p>
+          </div>
+          <div class="admin-user-list" id="admin-user-list" aria-live="polite"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <a class="footer-brand" href="#home">TFOC<span> / </span>ESPORTS</a>
+    <p data-site-content="footer.description">Tunisian Federation of Clans</p>
+    <a class="back-to-top" href="#home" data-site-content="footer.backToTop">BACK TO TOP ↑</a>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
